@@ -1,3 +1,3 @@
 LANGUAGE = 'en'
 DELAY_SECONDS = 5
-VOICE_NAME = "Grandma (English (UK))"
+VOICE_NAME = "Daniel"

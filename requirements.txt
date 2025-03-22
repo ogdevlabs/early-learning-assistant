@@ -1,1 +1,4 @@
 pyttsx3>=2.98
+opencv-python>=4.11.0.86
+opencv-python-headless>=4.11.0.86
+dlib>=19.24.6

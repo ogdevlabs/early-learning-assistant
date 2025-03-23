@@ -1,95 +1,80 @@
 import cv2
-import dlib
+import mediapipe as mp
+from face_detection import EyesDetector, NoseDetector, MouthDetector, EarsDetector
+from hand_detection import HandDetector
 
-class FaceDetector:
-    def __init__(self):
-        self.detector = dlib.get_frontal_face_detector()
-        self.predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
 
-    def detect_faces(self, frame):
-        frame_to_gray_color_scale = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        detected_faces = self.detector(frame_to_gray_color_scale)
-        return detected_faces
+def calculate_distance(p1, p2):
+    return ((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2) ** 0.5
 
-    def get_landmarks(self, frame, detected_face):
-        frame_to_gray_color_scale = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        landmarks = self.predictor(frame_to_gray_color_scale, detected_face)
-        return landmarks
+# Initialize Mediapipe Face Mesh
+mp_face_mesh = mp.solutions.face_mesh
 
-class EyesDetector(FaceDetector):
-    def detect_eyes(self, landmarks):
-        left_eye = landmarks.parts()[36:42]
-        right_eye = landmarks.parts()[42:48]
-        return left_eye, right_eye
+face_mesh = mp_face_mesh.FaceMesh(
+    static_image_mode=False,
+    max_num_faces=1,
+    refine_landmarks=True,
+    min_detection_confidence=0.5
+)
 
-class NoseDetector(FaceDetector):
-    def detect_nose(self, landmarks):
-        nose = landmarks.parts()[27:36]
-        return nose
+# Initialize Detectors
+eyes_detector = EyesDetector()
+nose_detector = NoseDetector()
+mouth_detector = MouthDetector()
+ears_detector = EarsDetector()
+hand_detector = HandDetector()
 
-class MouthDetector(FaceDetector):
-    def detect_mouth(self, landmarks):
-        mouth = landmarks.parts()[48:68]
-        return mouth
+# Start capturing video
+cap = cv2.VideoCapture(0)
 
-class EarsDetector(FaceDetector):
-    def detect_ears(self, landmarks):
-        left_ear = landmarks.parts()[0:2]
-        right_ear = landmarks.parts()[15:17]
-        return left_ear, right_ear
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-if __name__ == "__main__":
-    cap = cv2.VideoCapture(0)
-    face_detector = FaceDetector()
-    eyes_detector = EyesDetector()
-    nose_detector = NoseDetector()
-    mouth_detector = MouthDetector()
-    ears_detector = EarsDetector()
+    # Convert frame color to RGB
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    face_results = face_mesh.process(rgb_frame)
+    hand_landmarks = hand_detector.detect_hands(frame)
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    if face_results.multi_face_landmarks:
+        for face_landmarks in face_results.multi_face_landmarks:
+            nose_detector.detect(frame, face_landmarks)
+            mouth_detector.detect(frame, face_landmarks)
+            eyes_detector.detect(frame, face_landmarks)
+            ears_detector.detect(frame, face_landmarks)
+            hand_detector.draw_hands(frame, hand_landmarks)
 
-        faces = face_detector.detect_faces(frame)
-        for face in faces:
-            landmarks = face_detector.get_landmarks(frame, face)
+            # Check hand proximity to nose and mouth
+            for hand in hand_landmarks:
+                index_finger_tip = hand_detector.get_index_finger_tip(frame, hand)
 
-            # Draw landmarks
-            for n in range(0, 68):
-                x = landmarks.part(n).x
-                y = landmarks.part(n).y
-                cv2.circle(frame, (x, y), 1, (0, 255, 0), -1)
+                nose_tip = (int(face_landmarks.landmark[4].x * frame.shape[1]),
+                            int(face_landmarks.landmark[4].y * frame.shape[0]))
+                mouth_center = (int(face_landmarks.landmark[13].x * frame.shape[1]),
+                                int(face_landmarks.landmark[13].y * frame.shape[0]))
 
-            # Eyes
-            left_eye, right_eye = eyes_detector.detect_eyes(landmarks)
-            for eye in [left_eye, right_eye]:
-                for i in range(len(eye)):
-                    point1 = (eye[i].x, eye[i].y)
-                    point2 = (eye[(i + 1) % len(eye)].x, eye[(i + 1) % len(eye)].y)
-                    cv2.line(frame, point1, point2, (211, 211, 211), 2)
+                if calculate_distance(index_finger_tip, nose_tip) < 30:
+                    cv2.putText(frame, "Pointing Nose", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                elif calculate_distance(index_finger_tip, mouth_center) < 30:
+                    cv2.putText(frame, "Pointing Mouth", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-            # Nose
-            nose = nose_detector.detect_nose(landmarks)
-            for point in nose:
-                cv2.circle(frame, (point.x, point.y), 2, (0, 255, 0), -1)
+    cv2.imshow('Face and Hand Detection', frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
-            # Mouth
-            mouth = mouth_detector.detect_mouth(landmarks)
-            for i in range(len(mouth)):
-                point1 = (mouth[i].x, mouth[i].y)
-                point2 = (mouth[(i + 1) % len(mouth)].x, mouth[(i + 1) % len(mouth)].y)
-                cv2.line(frame, point1, point2, (0, 255, 255), 1)
+    # if results.multi_face_landmarks:
+    #     for face_landmarks in results.multi_face_landmarks:
+    #         # Detect each part
+    #         eyes_detector.detect(frame, face_landmarks)
+    #         nose_detector.detect(frame, face_landmarks)
+    #         mouth_detector.detect(frame, face_landmarks)
+    #         ears_detector.detect(frame, face_landmarks)
+    #
+    # # Show the frame
+    # cv2.imshow('Face Mesh Detection', frame)
+    # if cv2.waitKey(1) & 0xFF == ord('q'):
+    #     break
 
-            # Ears
-            left_ear, right_ear = ears_detector.detect_ears(landmarks)
-            for ear in [left_ear, right_ear]:
-                for point in ear:
-                    cv2.circle(frame, (point.x, point.y), 2, (255, 0, 0), -1)
-
-        cv2.imshow('Face Detection', frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
+cap.release()
+cv2.destroyAllWindows()

@@ -24,4 +24,4 @@ class HandDetector:
         for landmarks in hand_landmarks:
             for i, lm in enumerate(landmarks.landmark):
                 x, y = int(lm.x * width), int(lm.y * height)
-                cv2.circle(frame, (x, y), 5, (255, 0, 255), -1)
+                cv2.circle(frame, (x, y), 3, (255, 0, 255), -1)

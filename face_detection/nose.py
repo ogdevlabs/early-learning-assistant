@@ -23,10 +23,10 @@ class NoseDetector:
                     alpha = j / num_dots
                     dot_x = int((1 - alpha) * p1[0] + alpha * p2[0])
                     dot_y = int((1 - alpha) * p1[1] + alpha * p2[1])
-                    cv2.circle(frame, (dot_x, dot_y), 5, color=color, lineType=0, thickness=-1)
+                    cv2.circle(frame, (dot_x, dot_y), 1, color=color, lineType=0, thickness=-1)
 
         # Draw the nose bridge with dotted lines
-        draw_dotted_line(self.NOSE_BRIDGE, (255, 1, 255))
+        draw_dotted_line(self.NOSE_BRIDGE, (255, 0, 255))
 
         # Draw the sides of the nose with dotted lines
-        draw_dotted_line(self.NOSE_SIDES, (255, 1, 255))
+        draw_dotted_line(self.NOSE_SIDES, (255, 0, 255))

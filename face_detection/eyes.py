@@ -12,5 +12,5 @@ class EyesDetector:
                 landmark_list=face_landmarks,
                 connections=eye,
                 landmark_drawing_spec=None,
-                connection_drawing_spec=mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=2, circle_radius=1)  # Light gray, bolder lines
+                connection_drawing_spec=mp_drawing.DrawingSpec(color=(255, 0, 255), thickness=1, circle_radius=1)  # Light gray, bolder lines
             )

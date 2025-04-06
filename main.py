@@ -1,112 +1,141 @@
 import cv2
 import mediapipe as mp
-from face_detection import EyesDetector, NoseDetector, MouthDetector, EarsDetector
-from hand_detection import HandDetector
+from concurrent.futures import ThreadPoolExecutor
+import logging
+from typing import List, Tuple, Dict
+import pyttsx3
+import time
 
 
-def calculate_distance(p1, p2):
-    return ((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2) ** 0.5
+class SpeechManager:
+    def __init__(self, cooldown_seconds=3):
+        self.engine = pyttsx3.init()
+        self.spoken_recently = {}
+        self.cooldown = cooldown_seconds
+
+    def speak(self, label: str):
+        current_time = time.time()
+        last_spoken = self.spoken_recently.get(label, 0)
+
+        if current_time - last_spoken >= self.cooldown:
+            try:
+                self.engine.say(label)
+                self.engine.runAndWait()
+                self.spoken_recently[label] = current_time
+            except Exception as e:
+                logging.error(f"Speech error: {e}")
 
 
-# Initialize Mediapipe Face Mesh
-mp_face_mesh = mp.solutions.face_mesh
+class FaceHandInteractionSystem:
+    def __init__(self, max_workers=4):
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        self.speech_manager = SpeechManager()
 
-face_mesh = mp_face_mesh.FaceMesh(
-    static_image_mode=False,
-    max_num_faces=1,
-    refine_landmarks=True,
-    min_detection_confidence=0.5
-)
+        # MediaPipe initializations
+        self.mp_face_mesh = mp.solutions.face_mesh
+        self.face_mesh = self.mp_face_mesh.FaceMesh(
+            static_image_mode=False,
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.7,
+            min_tracking_confidence=0.6
+        )
 
-# Initialize Detectors
-eyes_detector = EyesDetector()
-nose_detector = NoseDetector()
-mouth_detector = MouthDetector()
-ears_detector = EarsDetector()
-hand_detector = HandDetector()
+        self.detectors = self._initialize_detectors()
 
-# Start capturing video
-cap = cv2.VideoCapture(0)
+    def _initialize_detectors(self):
+        from face_detection import (EyesDetector, NoseDetector, MouthDetector, EarsDetector)
+        from hand_detection import HandDetector
 
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-        break
+        return {
+            'eyes': EyesDetector(),
+            'nose': NoseDetector(),
+            'mouth': MouthDetector(),
+            'ears': EarsDetector(),
+            'hands': HandDetector()
+        }
 
-    # Convert frame color to RGB
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    face_results = face_mesh.process(rgb_frame)
-    hand_landmarks = hand_detector.detect_hands(frame)
+    def calculate_distance(self, p1: Tuple[int, int], p2: Tuple[int, int]) -> float:
+        return ((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2) ** 0.5
 
-    if face_results.multi_face_landmarks:
-        for face_landmarks in face_results.multi_face_landmarks:
-            nose_detector.detect(frame, face_landmarks)
-            mouth_detector.detect(frame, face_landmarks)
-            eyes_detector.detect(frame, face_landmarks)
-            ears_detector.detect(frame, face_landmarks)
-            hand_detector.draw_hands(frame, hand_landmarks)
+    def get_facial_points(self, face_landmarks, frame) -> Dict[str, Tuple[int, int]]:
+        def cords(idx):
+            return (
+                int(face_landmarks.landmark[idx].x * frame.shape[1]),
+                int(face_landmarks.landmark[idx].y * frame.shape[0])
+            )
 
-            # Define ear centers
-            left_ear_center = (int(face_landmarks.landmark[234].x * frame.shape[1]),
-                               int(face_landmarks.landmark[234].y * frame.shape[0]))
-            right_ear_center = (int(face_landmarks.landmark[454].x * frame.shape[1]),
-                                int(face_landmarks.landmark[454].y * frame.shape[0]))
+        return {
+            "Pointing Nose": cords(4),
+            "Pointing Mouth": cords(13),
+            "Pointing Eyes": cords(159),
+            "Pointing Ears": cords(234)
+        }
 
-            # Define eye centers
-            left_eye_center = (int(face_landmarks.landmark[159].x * frame.shape[1]),
-                               int(face_landmarks.landmark[159].y * frame.shape[0]))
-            right_eye_center = (int(face_landmarks.landmark[386].x * frame.shape[1]),
-                                int(face_landmarks.landmark[386].y * frame.shape[0]))
+    def process_frame(self, frame):
+        try:
+            # Convert to RGB
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            # Define nose tip
-            nose_tip = (int(face_landmarks.landmark[4].x * frame.shape[1]),
-                        int(face_landmarks.landmark[4].y * frame.shape[0]))
+            # Detect face and hand landmarks
+            face_results = self.face_mesh.process(rgb_frame)
+            hand_landmarks = self.detectors['hands'].detect_hands(frame)
 
-            # Define a mouth center
-            mouth_center = (int(face_landmarks.landmark[13].x * frame.shape[1]),
-                            int(face_landmarks.landmark[13].y * frame.shape[0]))
-            # Forehead center
-            forehead_center = (int(face_landmarks.landmark[10].x * frame.shape[1]),
-                               int(face_landmarks.landmark[10].y * frame.shape[0]))
-            # Top head
-            hair_center = (int(face_landmarks.landmark[1].x * frame.shape[1]),
-                               int(face_landmarks.landmark[1].y * frame.shape[0]))
+            if face_results.multi_face_landmarks:
+                for face_landmarks in face_results.multi_face_landmarks:
+                    # Detect and draw facial features
+                    for detector_name, detector in self.detectors.items():
+                        if detector_name != 'hands':
+                            detector.detect(frame, face_landmarks)
+                    # Draw hands
+                    self.detectors['hands'].draw_hands(frame, hand_landmarks)
 
-            # Check hand proximity to nose and mouth
-            for hand in hand_landmarks:
-                index_finger_tip = hand_detector.get_index_finger_tip(frame, hand)
+                    # Get a facial points array [eyes, ears, mouth, nose]
+                    facial_points = self.get_facial_points(face_landmarks, frame)
 
-                if calculate_distance(index_finger_tip, nose_tip) < 30:
-                    cv2.putText(frame, "Pointing Nose", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                elif calculate_distance(index_finger_tip, mouth_center) < 30:
-                    cv2.putText(frame, "Pointing Mouth", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                elif (calculate_distance(index_finger_tip, left_eye_center) < 30
-                      or calculate_distance(index_finger_tip,right_eye_center) < 30):
-                    cv2.putText(frame, "Pointing Eyes", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                elif (calculate_distance(index_finger_tip, left_ear_center) < 30
-                      or calculate_distance(index_finger_tip,right_ear_center) < 30):
-                    cv2.putText(frame, "Pointing Ears", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                elif calculate_distance(index_finger_tip, forehead_center) < 30:
-                    cv2.putText(frame, "Pointing Forehead", (50, 250), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                elif calculate_distance(index_finger_tip, hair_center) < 30:
-                    cv2.putText(frame, "Tapping head", (50, 250), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                    # Check for hand index finger
+                    for hand in hand_landmarks:
+                        index_finger_tip = self.detectors['hands'].get_index_finger_tip(frame, hand)
 
-    cv2.imshow('Face and Hand Detection', frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+                        for label, target in facial_points.items():
+                            if self.calculate_distance(index_finger_tip, target) < 30:
+                                # Speak and annotate
+                                cv2.putText(frame, label, (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                                self.speech_manager.speak(label)
+            return frame
+        except Exception as e:
+            self.logger.error(f"Frame processing error: {e}")
+            return frame
 
-    # if results.multi_face_landmarks:
-    #     for face_landmarks in results.multi_face_landmarks:
-    #         # Detect each part
-    #         eyes_detector.detect(frame, face_landmarks)
-    #         nose_detector.detect(frame, face_landmarks)
-    #         mouth_detector.detect(frame, face_landmarks)
-    #         ears_detector.detect(frame, face_landmarks)
-    #
-    # # Show the frame
-    # cv2.imshow('Face Mesh Detection', frame)
-    # if cv2.waitKey(1) & 0xFF == ord('q'):
-    #     break
+    def run(self):
+        cap = cv2.VideoCapture(0)
+        try:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-cap.release()
-cv2.destroyAllWindows()
+                processed_frame = self.process_frame(frame)
+                cv2.imshow('Early Learning Assistant', processed_frame)
+
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+
+        except Exception as e:
+            self.logger.critical(f"System error: {e}")
+
+        finally:
+            cap.release()
+            cv2.destroyAllWindows()
+            self.executor.shutdown(wait=True)
+
+
+def main():
+    logging.basicConfig(level=logging.INFO)
+    system = FaceHandInteractionSystem()
+    system.run()
+
+
+if __name__ == "__main__":
+    main()

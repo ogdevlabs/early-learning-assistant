@@ -38,8 +38,8 @@ class FaceHandInteractionSystem:
             static_image_mode=False,
             max_num_faces=1,
             refine_landmarks=True,
-            min_detection_confidence=0.8,
-            min_tracking_confidence=0.5
+            min_detection_confidence=0.7,
+            min_tracking_confidence=0.6
         )
 
         self.detectors = self._initialize_detectors()
@@ -70,8 +70,7 @@ class FaceHandInteractionSystem:
             "Pointing Nose": cords(4),
             "Pointing Mouth": cords(13),
             "Pointing Eyes": cords(159),
-            "Pointing Ears": cords(234),
-            "Pointing Forehead": cords(10)
+            "Pointing Ears": cords(234)
         }
 
     def process_frame(self, frame):
@@ -92,17 +91,17 @@ class FaceHandInteractionSystem:
                     # Draw hands
                     self.detectors['hands'].draw_hands(frame, hand_landmarks)
 
-                    # Get facial points
+                    # Get a facial points array [eyes, ears, mouth, nose]
                     facial_points = self.get_facial_points(face_landmarks, frame)
 
-                    # Check for hand position
+                    # Check for hand index finger
                     for hand in hand_landmarks:
                         index_finger_tip = self.detectors['hands'].get_index_finger_tip(frame, hand)
 
                         for label, target in facial_points.items():
-                            if self.calculate_distance(index_finger_tip,target)< 30:
+                            if self.calculate_distance(index_finger_tip, target) < 30:
                                 # Speak and annotate
-                                cv2.putText(frame,label, (50,100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),2)
+                                cv2.putText(frame, label, (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                                 self.speech_manager.speak(label)
             return frame
         except Exception as e:
@@ -118,10 +117,11 @@ class FaceHandInteractionSystem:
                     break
 
                 processed_frame = self.process_frame(frame)
-                cv2.imshow('Face and Hand detection', processed_frame)
+                cv2.imshow('Early Learning Assistant', processed_frame)
 
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
+
         except Exception as e:
             self.logger.critical(f"System error: {e}")
 
@@ -130,13 +130,12 @@ class FaceHandInteractionSystem:
             cv2.destroyAllWindows()
             self.executor.shutdown(wait=True)
 
+
 def main():
     logging.basicConfig(level=logging.INFO)
     system = FaceHandInteractionSystem()
     system.run()
 
+
 if __name__ == "__main__":
     main()
-
-
-

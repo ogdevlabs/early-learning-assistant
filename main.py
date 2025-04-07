@@ -84,10 +84,12 @@ class FaceHandInteractionSystem:
 
             if face_results.multi_face_landmarks:
                 for face_landmarks in face_results.multi_face_landmarks:
+
                     # Detect and draw facial features
                     for detector_name, detector in self.detectors.items():
                         if detector_name != 'hands':
                             detector.detect(frame, face_landmarks)
+
                     # Draw hands
                     self.detectors['hands'].draw_hands(frame, hand_landmarks)
 
@@ -96,6 +98,7 @@ class FaceHandInteractionSystem:
 
                     # Check for hand index finger
                     for hand in hand_landmarks:
+                        # The index finger coordinates
                         index_finger_tip = self.detectors['hands'].get_index_finger_tip(frame, hand)
 
                         for label, target in facial_points.items():

@@ -10,7 +10,7 @@
 - 🧍 Detects **facial landmarks** (eyes, ears, nose, mouth) using **MediaPipe Face Mesh**
 - ✋ Detects **hand landmarks** using **MediaPipe Hands**
 - 🔊 Uses **system speakers** for interactive audio feedback (if implemented in your `main.py`)
-- 💡 Designed for use in **early learning** environments to promote visual interaction
+- 💡 Designed for use in **early learning** environments to promote learning of body face parts
 
 ---
 

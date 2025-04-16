@@ -2,7 +2,7 @@ import logging
 import random
 from concurrent.futures import ThreadPoolExecutor
 import time
-
+import numpy as np
 import cv2
 import mediapipe as mp
 
@@ -40,6 +40,10 @@ class FaceHandInteractionSystem:
         self.face_proximity_threshold = 110
         self.threshold_adjustment_step = 10
 
+        # Initialize the selfie segmentation model to blur the background
+        self.mp_selfie_segmentation = mp.solutions.selfie_segmentation
+        self.selfie_segmenter = mp.solutions.selfie_segmentation.SelfieSegmentation(model_selection=1)
+
     def _initialize_detectors(self):
         from face_detection import (EyesDetector, NoseDetector, MouthDetector, EarsDetector)
         from hand_detection import HandDetector
@@ -52,6 +56,7 @@ class FaceHandInteractionSystem:
             'hands': HandDetector()
         }
 
+
     def _select_new_target(self):
         new_target = self.current_target
         while new_target == self.previous_target:
@@ -59,14 +64,25 @@ class FaceHandInteractionSystem:
         self.previous_target = new_target
         self.current_target = new_target
 
+
+    # Adding background blur functionality, near to Zoom or Teams by 99 ksize
+    def apply_background_blur(self, frame):
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.selfie_segmenter.process(rgb_frame)
+
+        if results.segmentation_mask is None:
+            return frame
+
+        condition = results.segmentation_mask > 0.1
+        blurred = cv2.GaussianBlur(frame, (99, 99), 0)
+        output = np.where(condition[..., None], frame, blurred)
+        return output
+
     def process_frame(self, frame):
         try:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             face_results = self.face_mesh.process(rgb_frame)
             hand_landmarks = self.detectors['hands'].detect_hands(frame)
-
-            # blur the background
-            blurred_frame = cv2.GaussianBlur(frame, (21, 21), 0)
 
             # Top-right label
             cv2.putText(
@@ -180,6 +196,7 @@ class FaceHandInteractionSystem:
                                     self.speech_manager.speak(f"Try again, touch your {part}")
                                     self.last_incorrect_time = time.time()
 
+            frame = self.apply_background_blur(frame)
             return frame
         except Exception as e:
             self.logger.error(f"Frame processing error: {e}")

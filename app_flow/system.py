@@ -227,7 +227,7 @@ class FaceHandInteractionSystem:
                         else:
                             if time.time() - self.last_incorrect_time > self.incorrect_cooldown:
                                 part = self.current_target.split()[1]
-                                self.speech_manager.speak(f"Try again, touch your {part}")
+                                self.speech_manager.speak(f"Not quite, touch your {part}")
                                 self.last_incorrect_time = time.time()
 
             # frame = self.apply_background_blur(frame)

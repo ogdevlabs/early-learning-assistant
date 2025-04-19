@@ -6,7 +6,6 @@ import numpy as np
 import cv2
 import mediapipe as mp
 
-
 from app_flow.speech import SpeechManager
 from app_flow.utils import calculate_distance, get_facial_points
 
@@ -64,7 +63,6 @@ class FaceHandInteractionSystem:
         self.previous_target = new_target
         self.current_target = new_target
 
-
     # Adding background blur functionality, near to Zoom or Teams by 99 ksize
     def apply_background_blur(self, frame):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -78,24 +76,38 @@ class FaceHandInteractionSystem:
         output = np.where(condition[..., None], frame, blurred)
         return output
 
+    def get_revised_face_boundary(self, face_landmarks, frame):
+        h, w, _ = frame.shape
+        face_boundary = []
+
+        # Top of head
+        for idx in [103, 67, 109, 10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288]:
+            pt = face_landmarks.landmark[idx]
+            face_boundary.append((int(pt.x * w), int(pt.y * h)))
+
+        # Mouth region
+        for idx in [0, 13, 14, 17, 84, 91, 181, 61, 39, 37, 267, 269, 270, 409, 291, 306]:
+            pt = face_landmarks.landmark[idx]
+            face_boundary.append((int(pt.x * w), int(pt.y * h)))
+
+        # Side face
+        for idx in [127, 234, 93, 35, 132, 108, 287, 336, 451, 365, 205, 424, 215, 54]:
+            pt = face_landmarks.landmark[idx]
+            face_boundary.append((int(pt.x * w), int(pt.y * h)))
+
+        # Cheek and jaw line
+        for idx in [127, 162, 21, 54, 93, 172, 136, 150, 149, 176, 148, 152]:
+            pt = face_landmarks.landmark[idx]
+            face_boundary.append((int(pt.x * w), int(pt.y * h)))
+
+        return np.array(face_boundary, dtype=np.int32)
+
     def is_hand_near_face(self, hand_point, face_landmarks, frame):
         # Calculate distance from hand point to face landmarks
         h, w, _ = frame.shape
         # Create a polygon from face boundary
-        face_boundary = []
+        face_boundary = self.get_revised_face_boundary(face_landmarks, frame)
 
-        # forehead
-        for idx in [10, 338, 297, 332, 284, 251, 389, 356, 454,323,361,288]:
-            pt = face_landmarks.landmark[idx]
-            face_boundary.append((int(pt.x * w), int(pt.y * h)))
-
-        # Jawline
-        for idx in [127, 162,21,54,103,67,109,10]:
-            pt = face_landmarks.landmark[idx]
-            face_boundary.append((int(pt.x * w), int(pt.y * h)))
-
-        # convert to a numpy array
-        face_boundary = np.array(face_boundary, dtype=np.int32)
         # calculate the distance from hand point to face boundary
         if cv2.pointPolygonTest(face_boundary, hand_point, False) >= 0:
             return True, 0
@@ -122,7 +134,6 @@ class FaceHandInteractionSystem:
             face_boundary.append((int(pt.x * w), int(pt.y * h)))
 
         return np.array(face_boundary, dtype=np.int32)
-
 
     def process_frame(self, frame):
         try:
@@ -152,7 +163,7 @@ class FaceHandInteractionSystem:
             if face_results.multi_face_landmarks:
                 face_landmarks = face_results.multi_face_landmarks[0]
 
-                #for face_landmarks in face_results.multi_face_landmarks:
+                # for face_landmarks in face_results.multi_face_landmarks:
 
                 for detector_name, detector in self.detectors.items():
                     if detector_name != 'hands':
@@ -179,14 +190,13 @@ class FaceHandInteractionSystem:
 
                     # Display hand coordinates
                     cv2.putText(frame, f"Hand: {index_finger_tip[0]}, {index_finger_tip[1]})",
-                                (10,30),
+                                (10, 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7,
                                 (255, 255, 255), 1)
 
-
                     # Display distance to face
                     legend_y_start = frame.shape[0] - 140
-                    cv2.rectangle(frame, (10, legend_y_start), (350, frame.shape[0]-10), (0, 0, 0), -1)
+                    cv2.rectangle(frame, (10, legend_y_start), (350, frame.shape[0] - 10), (0, 0, 0), -1)
 
                     # Hand coordinates
                     cv2.putText(frame, f"Hand: {index_finger_tip[0]}, {index_finger_tip[1]})",
@@ -220,7 +230,7 @@ class FaceHandInteractionSystem:
                                 self.speech_manager.speak(f"Try again, touch your {part}")
                                 self.last_incorrect_time = time.time()
 
-            #frame = self.apply_background_blur(frame)
+            # frame = self.apply_background_blur(frame)
             return frame
         except Exception as e:
             self.logger.error(f"Frame processing error: {e}")

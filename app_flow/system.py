@@ -6,6 +6,7 @@ import numpy as np
 import cv2
 import mediapipe as mp
 
+
 from app_flow.speech import SpeechManager
 from app_flow.utils import calculate_distance, get_facial_points
 
@@ -56,7 +57,6 @@ class FaceHandInteractionSystem:
             'hands': HandDetector()
         }
 
-
     def _select_new_target(self):
         new_target = self.current_target
         while new_target == self.previous_target:
@@ -77,6 +77,52 @@ class FaceHandInteractionSystem:
         blurred = cv2.GaussianBlur(frame, (99, 99), 0)
         output = np.where(condition[..., None], frame, blurred)
         return output
+
+    def is_hand_near_face(self, hand_point, face_landmarks, frame):
+        # Calculate distance from hand point to face landmarks
+        h, w, _ = frame.shape
+        # Create a polygon from face boundary
+        face_boundary = []
+
+        # forehead
+        for idx in [10, 338, 297, 332, 284, 251, 389, 356, 454,323,361,288]:
+            pt = face_landmarks.landmark[idx]
+            face_boundary.append((int(pt.x * w), int(pt.y * h)))
+
+        # Jawline
+        for idx in [127, 162,21,54,103,67,109,10]:
+            pt = face_landmarks.landmark[idx]
+            face_boundary.append((int(pt.x * w), int(pt.y * h)))
+
+        # convert to a numpy array
+        face_boundary = np.array(face_boundary, dtype=np.int32)
+        # calculate the distance from hand point to face boundary
+        if cv2.pointPolygonTest(face_boundary, hand_point, False) >= 0:
+            return True, 0
+
+        # if outside the polygon, calculate the distance
+        min_dist = cv2.pointPolygonTest(face_boundary, hand_point, True)
+
+        # calculate approximate face size for adaptive threshold
+        face_rect = cv2.boundingRect(face_boundary)
+        face_size = max(face_rect[2], face_rect[3])
+
+        # Adaptive threshold based on face size (15% of face size)
+        threshold = face_size * 0.15
+
+        # return whether the hand is near the face and the distance
+        return abs(min_dist) < threshold, abs(min_dist)
+
+    def get_face_boundary(self, face_landmarks, frame):
+        h, w, _ = frame.shape
+        face_boundary = []
+
+        for idx in [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 127, 162, 21, 54, 103, 67, 109, 10]:
+            pt = face_landmarks.landmark[idx]
+            face_boundary.append((int(pt.x * w), int(pt.y * h)))
+
+        return np.array(face_boundary, dtype=np.int32)
+
 
     def process_frame(self, frame):
         try:
@@ -104,99 +150,77 @@ class FaceHandInteractionSystem:
                 return frame
 
             if face_results.multi_face_landmarks:
-                for face_landmarks in face_results.multi_face_landmarks:
+                face_landmarks = face_results.multi_face_landmarks[0]
 
-                    for detector_name, detector in self.detectors.items():
-                        if detector_name != 'hands':
-                            detector.detect(frame, face_landmarks)
+                #for face_landmarks in face_results.multi_face_landmarks:
 
-                    self.detectors['hands'].draw_hands(frame, hand_landmarks)
+                for detector_name, detector in self.detectors.items():
+                    if detector_name != 'hands':
+                        detector.detect(frame, face_landmarks)
 
-                    # Array of facial points
-                    facial_points = get_facial_points(face_landmarks, frame)
+                self.detectors['hands'].draw_hands(frame, hand_landmarks)
 
-                    # Calculate the center of the face
-                    face_center = None
-                    if 'Pointing Nose' in facial_points:
-                        face_center = facial_points['Pointing Nose']
+                # Array of facial points
+                facial_points = get_facial_points(face_landmarks, frame)
 
-                    # Display face center legend
-                    if face_center:
-                        cv2.circle(frame, face_center, 5, (255, 0, 0), -1)
-                        cv2.putText(frame, "Face Center",
-                                    (face_center[0] + 10, face_center[1]),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                                    (255, 0, 0), 2)
+                # Display face boundary for visualization
+                face_boundary = self.get_face_boundary(face_landmarks, frame)
+                cv2.polylines(frame, [face_boundary], True, (0, 255, 255), 1)
 
-                    # Check if the target is already announced
-                    if not self.announced_target:
-                        self.speech_manager.speak(f"Touch your {self.current_target.split()[1]}")
-                        self.announced_target = True
+                # Check if the target is already announced
+                if not self.announced_target:
+                    self.speech_manager.speak(f"Touch your {self.current_target.split()[1]}")
+                    self.announced_target = True
 
-                    for hand in hand_landmarks:
-                        index_finger_tip = self.detectors['hands'].get_index_finger_tip(frame, hand)
+                for hand in hand_landmarks:
+                    index_finger_tip = self.detectors['hands'].get_index_finger_tip(frame, hand)
 
-                        # Display hand coordinates
-                        cv2.putText(frame, f"Hand: {index_finger_tip[0]}, {index_finger_tip[1]})",
-                                    (10,30),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                                    (255, 255, 255), 1)
+                    is_near, distance = self.is_hand_near_face(index_finger_tip, face_landmarks, frame)
 
-                        # Add proximity check to calculate distance to face from index finger tip
-                        distance_to_face = None
-                        is_near_face = False
+                    # Display hand coordinates
+                    cv2.putText(frame, f"Hand: {index_finger_tip[0]}, {index_finger_tip[1]})",
+                                (10,30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                (255, 255, 255), 1)
 
-                        if face_center:
-                            distance_to_face = calculate_distance(index_finger_tip, face_center)
-                            is_near_face = distance_to_face < self.face_proximity_threshold
 
-                            # draw visual line between index finger tip and face center
-                            cv2.line(frame, index_finger_tip, face_center,
-                                     (0, 255, 0) if is_near_face else (0, 0, 255), 2)
+                    # Display distance to face
+                    legend_y_start = frame.shape[0] - 140
+                    cv2.rectangle(frame, (10, legend_y_start), (350, frame.shape[0]-10), (0, 0, 0), -1)
 
-                        # Display distance to face
-                        legend_y_start = frame.shape[0] - 140
-                        cv2.rectangle(frame, (10, legend_y_start), (350, frame.shape[0]-10), (0, 0, 0), -1)
+                    # Hand coordinates
+                    cv2.putText(frame, f"Hand: {index_finger_tip[0]}, {index_finger_tip[1]})",
+                                (20, legend_y_start + 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                (255, 255, 255), 1)
 
-                        # Hand coordinates
-                        cv2.putText(frame, f"Hand: {index_finger_tip[0]}, {index_finger_tip[1]})",
-                                    (20, legend_y_start + 30),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                                    (255, 255, 255), 1)
+                    # Display on the screen as helpful information
+                    hand_status_text = f"Hand near face ({int(distance)}px)" if is_near else f"Hand not near face ({int(distance)}px)"
+                    hand_status_color = (0, 255, 0) if is_near else (0, 0, 255)
 
-                        if facial_points:
-                            face_center = facial_points.get('face_center', None)
-                            if face_center:
-                                distance_to_face = calculate_distance(index_finger_tip, face_center)
-                                is_near_face = distance_to_face < 110
+                    # Add legend for hand status
+                    cv2.rectangle(frame, (10, frame.shape[0] - 40), (250, frame.shape[0] - 10), (0, 0, 0), -1)
+                    cv2.putText(frame, hand_status_text, (20, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                hand_status_color, 2)
 
-                        # Display on the screen as helpful information
-                        hand_status_text = "Hand near face" if is_near_face else "Hand not near face"
-                        hand_status_color = (0, 255, 0) if is_near_face else (0, 0, 255)
+                    if is_near:
+                        target_coords = facial_points.get(self.current_target)
+                        if target_coords and calculate_distance(index_finger_tip, target_coords) < 30:
+                            cv2.putText(frame, f"Correct: {self.current_target}", (50, 100),
+                                        cv2.FONT_HERSHEY_SIMPLEX,
+                                        1, (0, 255, 0), 2)
+                            self.speech_manager.speak("Good job!")
+                            self.correct_time = current_time
+                            self.waiting_after_success = True
+                            break
 
-                        # Add legend for hand status
-                        cv2.rectangle(frame, (10, frame.shape[0] - 40), (250, frame.shape[0] - 10), (0, 0, 0), -1)
-                        cv2.putText(frame, hand_status_text, (20, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                                    hand_status_color, 2)
+                        else:
+                            if time.time() - self.last_incorrect_time > self.incorrect_cooldown:
+                                part = self.current_target.split()[1]
+                                self.speech_manager.speak(f"Try again, touch your {part}")
+                                self.last_incorrect_time = time.time()
 
-                        if is_near_face:
-                            target_coords = facial_points.get(self.current_target)
-                            if target_coords and calculate_distance(index_finger_tip, target_coords) < 30:
-                                cv2.putText(frame, f"Correct: {self.current_target}", (50, 100),
-                                            cv2.FONT_HERSHEY_SIMPLEX,
-                                            1, (0, 255, 0), 2)
-                                self.speech_manager.speak("Good job!")
-                                self.correct_time = current_time
-                                self.waiting_after_success = True
-                                break
-
-                            else:
-                                if time.time() - self.last_incorrect_time > self.incorrect_cooldown:
-                                    part = self.current_target.split()[1]
-                                    self.speech_manager.speak(f"Try again, touch your {part}")
-                                    self.last_incorrect_time = time.time()
-
-            frame = self.apply_background_blur(frame)
+            #frame = self.apply_background_blur(frame)
             return frame
         except Exception as e:
             self.logger.error(f"Frame processing error: {e}")

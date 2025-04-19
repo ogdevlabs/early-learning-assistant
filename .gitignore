@@ -176,3 +176,4 @@ cython_debug/
 /bin/
 /pyvenv.cfg
 /share/
+.DS_Store

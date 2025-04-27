@@ -30,7 +30,7 @@ class FaceHandInteractionSystem:
         self.current_target = random.choice(self.facial_labels)
         self.previous_target = self.current_target
         self.last_incorrect_time = 0
-        self.incorrect_cooldown = 15
+        self.incorrect_cooldown = 3
         self.announced_target = False
 
         self.correct_time = 0
@@ -225,6 +225,11 @@ class FaceHandInteractionSystem:
                             break
 
                         else:
+                            # Provide continuous feedback for incorrect placement
+                            cv2.putText(frame, f"Incorrect: Touch your {self.current_target.split()[1]}",
+                                        (50, 100),
+                                        cv2.FONT_HERSHEY_SIMPLEX,
+                                        1, (0, 0, 255), 2)
                             if time.time() - self.last_incorrect_time > self.incorrect_cooldown:
                                 part = self.current_target.split()[1]
                                 self.speech_manager.speak(f"Not quite, touch your {part}")

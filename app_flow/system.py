@@ -175,12 +175,23 @@ class FaceHandInteractionSystem:
                 facial_points = get_facial_points(face_landmarks, frame)
 
                 # Display face boundary for visualization
-                face_boundary = self.get_face_boundary(face_landmarks, frame)
-                cv2.polylines(frame, [face_boundary], True, (0, 255, 255), 1)
+                # face_boundary = self.get_face_boundary(face_landmarks, frame)
+                # cv2.polylines(frame, [face_boundary], True, (255, 255, 255), 1)
+
+                # Blinking logic
+                target_coords = facial_points.get(self.current_target)
+                if target_coords:
+                    if time.time() % 1 > 0.5:
+                        indicator_color = (255, 255, 255)
+                    else:
+                        indicator_color = None
+
+                    if indicator_color:
+                        cv2.circle(frame, target_coords, 10, indicator_color, -1)
 
                 # Check if the target is already announced
                 if not self.announced_target:
-                    self.speech_manager.speak(f"Touch your {self.current_target.split()[1]}")
+                    self.speech_manager.speak(f"Can you point your {self.current_target.split()[1]}")
                     self.announced_target = True
 
                 for hand in hand_landmarks:
@@ -226,16 +237,17 @@ class FaceHandInteractionSystem:
 
                         else:
                             # Provide continuous feedback for incorrect placement
-                            cv2.putText(frame, f"Incorrect: Touch your {self.current_target.split()[1]}",
+                            cv2.putText(frame,
+                                        f"No quite, let's try again. Can you point your {self.current_target.split()[1]}",
                                         (50, 100),
                                         cv2.FONT_HERSHEY_SIMPLEX,
                                         1, (0, 0, 255), 2)
                             if time.time() - self.last_incorrect_time > self.incorrect_cooldown:
                                 part = self.current_target.split()[1]
-                                self.speech_manager.speak(f"Not quite, touch your {part}")
+                                self.speech_manager.speak(f"Let's try again, try to point your {part}")
                                 self.last_incorrect_time = time.time()
 
-            # frame = self.apply_background_blur(frame)
+            frame = self.apply_background_blur(frame)
             return frame
         except Exception as e:
             self.logger.error(f"Frame processing error: {e}")
@@ -244,7 +256,7 @@ class FaceHandInteractionSystem:
     def run(self):
         cap = cv2.VideoCapture(0)
         try:
-            self.speech_manager.speak("Welcome to Early Learning Game. Let's start!")
+            self.speech_manager.speak("Welcome to Early Learning Game. Let's have fun!")
             while True:
                 ret, frame = cap.read()
                 if not ret:

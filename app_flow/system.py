@@ -181,13 +181,15 @@ class FaceHandInteractionSystem:
                 # Blinking logic
                 target_coords = facial_points.get(self.current_target)
                 if target_coords:
-                    if time.time() % 1 > 0.5:
-                        indicator_color = (255, 255, 255)
-                    else:
-                        indicator_color = None
+                    for coord in target_coords:
+                        if coord is not None and 0 <= coord[0] < frame.shape[1] and 0 <= coord[1] < frame.shape[0]:
+                            if time.time() % 1 > 0.5:
+                                indicator_color = (255, 255, 255)
+                            else:
+                                indicator_color = None
 
-                    if indicator_color:
-                        cv2.circle(frame, target_coords, 10, indicator_color, -1)
+                            if indicator_color:
+                                cv2.circle(frame, coord, 10, indicator_color, -1)
 
                 # Check if the target is already announced
                 if not self.announced_target:
@@ -196,10 +198,12 @@ class FaceHandInteractionSystem:
 
                 for hand in hand_landmarks:
                     index_finger_tip = self.detectors['hands'].get_index_finger_tip(frame, hand)
+                    is_near = False
+                    distance = float('inf')
 
                     is_near, distance = self.is_hand_near_face(index_finger_tip, face_landmarks, frame)
 
-                    # Display hand coordinates
+                    # # Display hand coordinates
                     cv2.putText(frame, f"Hand: {index_finger_tip[0]}, {index_finger_tip[1]})",
                                 (10, 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7,
@@ -247,7 +251,7 @@ class FaceHandInteractionSystem:
                                 self.speech_manager.speak(f"Let's try again, try to point your {part}")
                                 self.last_incorrect_time = time.time()
 
-            frame = self.apply_background_blur(frame)
+            #frame = self.apply_background_blur(frame)
             return frame
         except Exception as e:
             self.logger.error(f"Frame processing error: {e}")

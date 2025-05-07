@@ -201,9 +201,9 @@ class FaceHandInteractionSystem:
                     is_near = False
                     distance = float('inf')
 
-                    is_near, distance = self.is_hand_near_face(index_finger_tip, face_landmarks, frame)
+                    # is_near, distance = self.is_hand_near_face(index_finger_tip, face_landmarks, frame)
 
-                    # # Display hand coordinates
+                    # Display hand coordinates
                     cv2.putText(frame, f"Hand: {index_finger_tip[0]}, {index_finger_tip[1]})",
                                 (10, 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7,
@@ -227,6 +227,36 @@ class FaceHandInteractionSystem:
                     cv2.rectangle(frame, (10, frame.shape[0] - 40), (250, frame.shape[0] - 10), (0, 0, 0), -1)
                     cv2.putText(frame, hand_status_text, (20, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
                                 hand_status_color, 2)
+
+                    # Eyes both detection
+                    if self.current_target == "Pointing Eyes":
+                        eye_coords = facial_points.get("Pointing Eyes")
+                        if eye_coords:
+                            for eye_coord in eye_coords:
+                                if eye_coord is not None:
+                                    is_near, distance = self.is_hand_near_face(index_finger_tip, face_landmarks, frame)
+                                    if is_near and calculate_distance(index_finger_tip, eye_coord) < 30:
+                                        cv2.putText(frame, f"Correct: {self.current_target}", (50, 100),
+                                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                                    1, (0, 255, 0), 2)
+                                        self.speech_manager.speak("Good job!")
+                                        self.correct_time = current_time
+                                        self.waiting_after_success = True
+                                        break
+
+                    if self.current_target == "Pointing Ears":
+                        ear_coords = facial_points.get("Pointing Ears")
+                        if ear_coords:
+                            for ear_coord in ear_coords:
+                                if ear_coord is not None:
+                                    is_near, distance = self.is_hand_near_face(index_finger_tip, face_landmarks, frame)
+                                    if is_near and calculate_distance(index_finger_tip, ear_coord) < 30:
+                                        cv2.putText(frame, f"Correct: {self.current_target}", (50, 100),
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                                        self.speech_manager.speak("Good job!")
+                                        self.correct_time = current_time
+                                        self.waiting_after_success = True
+                                        break
 
                     if is_near:
                         target_coords = facial_points.get(self.current_target)

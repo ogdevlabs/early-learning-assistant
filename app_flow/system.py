@@ -174,10 +174,6 @@ class FaceHandInteractionSystem:
                 # Array of facial points
                 facial_points = get_facial_points(face_landmarks, frame)
 
-                # Display face boundary for visualization
-                # face_boundary = self.get_face_boundary(face_landmarks, frame)
-                # cv2.polylines(frame, [face_boundary], True, (255, 255, 255), 1)
-
                 # Blinking logic
                 target_coords = facial_points.get(self.current_target)
                 if target_coords:
@@ -198,6 +194,13 @@ class FaceHandInteractionSystem:
 
                 for hand in hand_landmarks:
                     index_finger_tip = self.detectors['hands'].get_index_finger_tip(frame, hand)
+
+                    if isinstance(index_finger_tip, (tuple, list)) and len(index_finger_tip) == 2:
+                        pass
+                    else:
+                        self.logger.error("Invalid index finger tip coordinates")
+                        continue
+
                     is_near = False
                     distance = float('inf')
 
@@ -213,14 +216,11 @@ class FaceHandInteractionSystem:
                     legend_y_start = frame.shape[0] - 140
                     cv2.rectangle(frame, (10, legend_y_start), (350, frame.shape[0] - 10), (0, 0, 0), -1)
 
-                    # Hand coordinates
-                    cv2.putText(frame, f"Hand: {index_finger_tip[0]}, {index_finger_tip[1]})",
-                                (20, legend_y_start + 30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                                (255, 255, 255), 1)
-
-                    # Display on the screen as helpful information
-                    hand_status_text = f"Hand near face ({int(distance)}px)" if is_near else f"Hand not near face ({int(distance)}px)"
+                    # Ensure distance is valid before displaying
+                    if distance != float('inf'):
+                        hand_status_text = f"Hand near face ({int(distance)}px)" if is_near else f"Hand not near face ({int(distance)}px)"
+                    else:
+                        hand_status_text = "Hand not near face (N/A)"
                     hand_status_color = (0, 255, 0) if is_near else (0, 0, 255)
 
                     # Add legend for hand status

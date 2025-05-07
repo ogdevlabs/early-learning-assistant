@@ -44,6 +44,13 @@ class FaceHandInteractionSystem:
         self.mp_selfie_segmentation = mp.solutions.selfie_segmentation
         self.selfie_segmenter = mp.solutions.selfie_segmentation.SelfieSegmentation(model_selection=1)
 
+        # Add hand stability tracking variables
+        self.hand_position_history = []
+        self.hand_stability_threshold = 15  # Number of frames to consider hand stable
+        self.stability_required_time = 0.5  # Time in seconds to consider hand stable
+        self.last_position_time = 0
+        self.hand_is_stable = False
+
     def _initialize_detectors(self):
         from face_detection import (EyesDetector, NoseDetector, MouthDetector, EarsDetector)
         from hand_detection import HandDetector
@@ -235,8 +242,34 @@ class FaceHandInteractionSystem:
                         self.announced_target = True
 
                     if is_near:
+                        current_time = time.time()
+
+                        if current_time - self.last_position_time > 0.1:
+                            self.hand_position_history.append((index_finger_tip, current_time))
+                            self.last_position_time = current_time
+
+                            # keep only positions within the last second
+                            self.hand_position_history = [p for p in self.hand_position_history if current_time - p[1] < 1.0]
+
+                            # Check if the hand is stable
+                            if len(self.hand_position_history) >=3:
+                                max_movement = 0
+                                for i in range(1, len(self.hand_position_history)):
+                                    prev_pos = self.hand_position_history[i-1][0]
+                                    curr_pos = self.hand_position_history[i][0]
+                                    movement = calculate_distance(prev_pos, curr_pos)
+                                    max_movement = max(max_movement, movement)
+
+                                # hand is stable if the max movement is less than the threshold
+                                self.hand_is_stable = max_movement < self.hand_stability_threshold
+                                stable_duration = current_time - self.hand_position_history[0][1] if self.hand_is_stable else 0
+                            else:
+                                self.hand_is_stable = False
+                                stable_duration = 0
+
+
                         target_coords = facial_points.get(self.current_target)
-                        if target_coords:
+                        if target_coords and self.hand_is_stable:
                             success = False
                             # if self.current_target in ["Pointing Nose", "Pointing Mouth"]:
                             for coord in target_coords:
@@ -247,17 +280,21 @@ class FaceHandInteractionSystem:
                                     self.speech_manager.speak("Good job!")
                                     self.correct_time = current_time
                                     self.waiting_after_success = True
+                                    self.last_incorrect_time = current_time
                                     success = True
                                     break
 
-                            if not success:
+                            if not success and not self.waiting_after_success:
                                 # Provide continuous feedback for incorrect placement
                                 cv2.putText(frame,
-                                            f"No quite, let's try again. Can you point your {self.current_target.split()[1]}",
+                                            f"Not quite, let's try again. Can you point your {self.current_target.split()[1]}",
                                             (50, 100),
                                             cv2.FONT_HERSHEY_SIMPLEX,
                                             1, (0, 0, 255), 2)
-                                if time.time() - self.last_incorrect_time > self.incorrect_cooldown:
+
+
+                                if (time.time() - self.last_incorrect_time > self.incorrect_cooldown and
+                                        time.time() - self.correct_time > 3):
                                     part = self.current_target.split()[1]
                                     self.speech_manager.speak(f"Let's try again, try to point your {part}")
                                     self.last_incorrect_time = time.time()

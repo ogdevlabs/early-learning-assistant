@@ -14,8 +14,8 @@ class EarsDetector:
 
         # Draw left ear
         left_ear_points = [(int(face_landmarks.landmark[l].x * w), int(face_landmarks.landmark[l].y * h)) for l in self.LEFT_EAR]
-        cv2.polylines(frame, [np.array(left_ear_points)], isClosed=True, color=(255, 0, 255), thickness=1, lineType=0)
+        #cv2.polylines(frame, [np.array(left_ear_points)], isClosed=True, color=(255, 255, 255), thickness=1, lineType=0)
 
         # Draw right ear
         right_ear_points = [(int(face_landmarks.landmark[r].x * w), int(face_landmarks.landmark[r].y * h)) for r in self.RIGHT_EAR]
-        cv2.polylines(frame, [np.array(right_ear_points)], isClosed=True, color=(255, 0, 255), thickness=1, lineType=0)
+        #cv2.polylines(frame, [np.array(right_ear_points)], isClosed=True, color=(255, 255, 255), thickness=1, lineType=0)

@@ -192,6 +192,8 @@ class FaceHandInteractionSystem:
                     self.speech_manager.speak(f"Can you point your {self.current_target.split()[1]}")
                     self.announced_target = True
 
+                # Check if the hand is near the face
+
                 for hand in hand_landmarks:
                     index_finger_tip = self.detectors['hands'].get_index_finger_tip(frame, hand)
 
@@ -228,83 +230,37 @@ class FaceHandInteractionSystem:
                     cv2.putText(frame, hand_status_text, (20, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
                                 hand_status_color, 2)
 
-                    # Eyes both detection
-                    if self.current_target == "Pointing Eyes":
-                        eye_coords = facial_points.get("Pointing Eyes")
-                        if eye_coords:
-                            for eye_coord in eye_coords:
-                                if eye_coord is not None:
-                                    is_near, distance = self.is_hand_near_face(index_finger_tip, face_landmarks, frame)
-                                    if is_near and calculate_distance(index_finger_tip, eye_coord) < 30:
-                                        cv2.putText(frame, f"Correct: {self.current_target}", (50, 100),
-                                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                                    1, (0, 255, 0), 2)
-                                        self.speech_manager.speak("Good job!")
-                                        self.correct_time = current_time
-                                        self.waiting_after_success = True
-                                        break
-                                    else:
-                                        # Provide continuous feedback for incorrect placement
-                                        cv2.putText(frame,
-                                                    f"No quite, let's try again. Can you point your {self.current_target.split()[1]}",
-                                                    (50, 100),
-                                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                                    1, (0, 0, 255), 2)
-                                        if time.time() - self.last_incorrect_time > self.incorrect_cooldown:
-                                            part = self.current_target.split()[1]
-                                            self.speech_manager.speak(f"Let's try again, try to point your {part}")
-                                            self.last_incorrect_time = time.time()
-
-                    if self.current_target == "Pointing Ears":
-                        ear_coords = facial_points.get("Pointing Ears")
-                        if ear_coords:
-                            for ear_coord in ear_coords:
-                                if ear_coord is not None:
-                                    is_near, distance = self.is_hand_near_face(index_finger_tip, face_landmarks, frame)
-                                    if is_near and calculate_distance(index_finger_tip, ear_coord) < 30:
-                                        cv2.putText(frame, f"Correct: {self.current_target}", (50, 100),
-                                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                                        self.speech_manager.speak("Good job!")
-                                        self.correct_time = current_time
-                                        self.waiting_after_success = True
-                                        break
-                                    else:
-                                        # Provide continuous feedback for incorrect placement
-                                        cv2.putText(frame,
-                                                    f"No quite, let's try again. Can you point your {self.current_target.split()[1]}",
-                                                    (50, 100),
-                                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                                    1, (0, 0, 255), 2)
-                                        if time.time() - self.last_incorrect_time > self.incorrect_cooldown:
-                                            part = self.current_target.split()[1]
-                                            self.speech_manager.speak(f"Let's try again, try to point your {part}")
-                                            self.last_incorrect_time = time.time()
+                    if is_near and not self.announced_target:
+                        self.speech_manager.speak(f"Can you point your {self.current_target.split()[1]}?")
+                        self.announced_target = True
 
                     if is_near:
                         target_coords = facial_points.get(self.current_target)
                         if target_coords:
-                            if self.current_target in ["Pointing Nose", "Pointing Mouth"]:
-                                for coord in target_coords:
-                                    if target_coords and calculate_distance(index_finger_tip, coord) < 30:
-                                        cv2.putText(frame, f"Correct: {self.current_target}", (50, 100),
-                                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                                    1, (0, 255, 0), 2)
-                                        self.speech_manager.speak("Good job!")
-                                        self.correct_time = current_time
-                                        self.waiting_after_success = True
-                                        break
+                            success = False
+                            # if self.current_target in ["Pointing Nose", "Pointing Mouth"]:
+                            for coord in target_coords:
+                                if coord is not None and calculate_distance(index_finger_tip, coord) < 30:
+                                    cv2.putText(frame, f"Correct: {self.current_target}", (50, 100),
+                                                cv2.FONT_HERSHEY_SIMPLEX,
+                                                1, (0, 255, 0), 2)
+                                    self.speech_manager.speak("Good job!")
+                                    self.correct_time = current_time
+                                    self.waiting_after_success = True
+                                    success = True
+                                    break
 
-                                    else:
-                                        # Provide continuous feedback for incorrect placement
-                                        cv2.putText(frame,
-                                                    f"No quite, let's try again. Can you point your {self.current_target.split()[1]}",
-                                                    (50, 100),
-                                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                                    1, (0, 0, 255), 2)
-                                        if time.time() - self.last_incorrect_time > self.incorrect_cooldown:
-                                            part = self.current_target.split()[1]
-                                            self.speech_manager.speak(f"Let's try again, try to point your {part}")
-                                            self.last_incorrect_time = time.time()
+                            if not success:
+                                # Provide continuous feedback for incorrect placement
+                                cv2.putText(frame,
+                                            f"No quite, let's try again. Can you point your {self.current_target.split()[1]}",
+                                            (50, 100),
+                                            cv2.FONT_HERSHEY_SIMPLEX,
+                                            1, (0, 0, 255), 2)
+                                if time.time() - self.last_incorrect_time > self.incorrect_cooldown:
+                                    part = self.current_target.split()[1]
+                                    self.speech_manager.speak(f"Let's try again, try to point your {part}")
+                                    self.last_incorrect_time = time.time()
 
             #frame = self.apply_background_blur(frame)
             return frame

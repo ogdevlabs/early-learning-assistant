@@ -204,7 +204,7 @@ class FaceHandInteractionSystem:
                     is_near = False
                     distance = float('inf')
 
-                    # is_near, distance = self.is_hand_near_face(index_finger_tip, face_landmarks, frame)
+                    is_near, distance = self.is_hand_near_face(index_finger_tip, face_landmarks, frame)
 
                     # Display hand coordinates
                     cv2.putText(frame, f"Hand: {index_finger_tip[0]}, {index_finger_tip[1]})",

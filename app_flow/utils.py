@@ -14,6 +14,6 @@ def get_facial_points(face_landmarks, frame) -> Dict[str, List[Tuple[int, int]]]
     return {
         "Pointing Eyes": [cords(33), cords(263)],
         "Pointing Ears": [cords(234),cords(454)],
-        "Pointing Nose": cords(4),
-        "Pointing Mouth": cords(13)
+        "Pointing Nose": [cords(4)],
+        "Pointing Mouth": [cords(13)]
     }

@@ -19,26 +19,43 @@
 Make sure you have:
 
 - A working **webcam** and **speaker**
-- Python **3.7 or newer** installed  
+- Python **3.10.13 or newer** installed  
   Check with:
+# Python 3.10.13 Virtual Environment Setup
 
-  ```bash
-  python --version
+This project enforces **Python 3.10.13** inside a virtual environment, without modifying or relying on the system-wide Python version. All setup steps are handled automatically via platform-specific scripts.
 
-## Local Setup
+---
 
-- Enable Python virtual environment and install dependencies:
-```commandline
-> python3 -m venv env
-> source env/bin/activate
-> pip install --upgrade pip
-> pip install -r requirements.txt
+## ✅ Supported Platforms
 
+- macOS (x86_64 or ARM)
+- Windows 10+
 
+---
+
+## 🚀 Setup Instructions
+
+### 1. Clone or download the project.
+
+```bash
+> git clone <your-repo-url>
+> cd <project-folder>
+````
+
+### 2. Execute the setup script.
+- For **macOS**:
+```bash
+>  setup-macos.sh
+```
+- For **Windows**:
+```bash
+>  setup-windows.bat
 ```
 
 ## Run the app:
-```commandline
+```bash
+
 > python main.py
 ```
 

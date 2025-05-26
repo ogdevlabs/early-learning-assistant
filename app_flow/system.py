@@ -11,7 +11,8 @@ from app_flow.utils import calculate_distance, get_facial_points
 
 
 class FaceHandInteractionSystem:
-    def __init__(self, max_workers=4):
+    def __init__(self, scorer, max_workers=4):
+        self.scorer = scorer
         self.logger = logging.getLogger(self.__class__.__name__)
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.speech_manager = SpeechManager()
@@ -277,6 +278,8 @@ class FaceHandInteractionSystem:
                                     cv2.putText(frame, f"Correct: {self.current_target}", (50, 100),
                                                 cv2.FONT_HERSHEY_SIMPLEX,
                                                 1, (0, 255, 0), 2)
+
+                                    self.scorer.log_scoring_event("user_id", self.current_target, True)
                                     self.speech_manager.speak("Good job!")
                                     self.correct_time = current_time
                                     self.waiting_after_success = True
@@ -291,7 +294,7 @@ class FaceHandInteractionSystem:
                                             (50, 100),
                                             cv2.FONT_HERSHEY_SIMPLEX,
                                             1, (0, 0, 255), 2)
-
+                                self.scorer.log_scoring_event("user_id", self.current_target, False)
 
                                 if (time.time() - self.last_incorrect_time > self.incorrect_cooldown and
                                         time.time() - self.correct_time > 3):

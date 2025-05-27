@@ -1,3 +1,5 @@
+![Early Learning Assistant logo](assets/EarlyLearningAssistant.png)
+
 # Early Learning Assistant
 
 **Support little toddlers learning through the usage of AI"

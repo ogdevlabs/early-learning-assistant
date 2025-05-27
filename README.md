@@ -1,10 +1,6 @@
-![Early Learning Assistant logo](assets/EarlyLearningAssistant.png)
+<img src="assets/EarlyLearningAssistant.png" alt="Early Learning Assistant logo" style="width:100%;max-width:100vw;display:block;" />
 
 # Early Learning Assistant
-
-**Support little toddlers learning through the usage of AI"
-
-
 
 **Early Learning Assistant** is a real-time interactive educational app built with Python. It uses your computer’s **camera** and **speakers** to guide users—especially young learners—through playful actions and tasks. The app uses **MediaPipe** to detect **faces** (eyes, nose, mouth, ears) and **hands**, enabling visual and gesture-based interaction.
 

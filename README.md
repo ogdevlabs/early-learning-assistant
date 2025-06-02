@@ -33,6 +33,7 @@ This project enforces **Python 3.10.11** inside a virtual environment, without m
 
 - macOS (x86_64 or ARM)
 - Windows 10+
+- Linux (not tested, but should work with minor adjustments)
 
 ---
 
@@ -54,6 +55,10 @@ This project enforces **Python 3.10.11** inside a virtual environment, without m
 - For **Windows**:
 ```bash
 >  setup-windows.bat
+```
+- For **Linux**:
+```bash
+>  setup-linux.sh
 ```
 
 ## Run the app:

@@ -23,9 +23,9 @@ Make sure you have:
 - A working **webcam** and **speaker**
 - Python **3.10.13 or newer** installed  
   Check with:
-# Python 3.10.13 Virtual Environment Setup
+# Python 3.10.11 Virtual Environment Setup
 
-This project enforces **Python 3.10.13** inside a virtual environment, without modifying or relying on the system-wide Python version. All setup steps are handled automatically via platform-specific scripts.
+This project enforces **Python 3.10.11** inside a virtual environment, without modifying or relying on the system-wide Python version. All setup steps are handled automatically via platform-specific scripts.
 
 ---
 
@@ -49,6 +49,7 @@ This project enforces **Python 3.10.13** inside a virtual environment, without m
 - For **macOS**:
 ```bash
 >  setup-macos.sh
+>  source .venv/bin/activate
 ```
 - For **Windows**:
 ```bash
@@ -58,7 +59,7 @@ This project enforces **Python 3.10.13** inside a virtual environment, without m
 ## Run the app:
 ```bash
 
-> python main.py
+>(.venv)(base) python main.py
 ```
 
 ## Remarks:

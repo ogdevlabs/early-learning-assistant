@@ -1,3 +1,5 @@
+<img src="assets/EarlyLearningAssistant.png" alt="Early Learning Assistant logo" style="width:100%;max-width:100vw;display:block;" />
+
 # Early Learning Assistant
 
 **Early Learning Assistant** is a real-time interactive educational app built with Python. It uses your computer’s **camera** and **speakers** to guide users—especially young learners—through playful actions and tasks. The app uses **MediaPipe** to detect **faces** (eyes, nose, mouth, ears) and **hands**, enabling visual and gesture-based interaction.
@@ -19,27 +21,50 @@
 Make sure you have:
 
 - A working **webcam** and **speaker**
-- Python **3.7 or newer** installed  
+- Python **3.10.13 or newer** installed  
   Check with:
+# Python 3.10.11 Virtual Environment Setup
 
-  ```bash
-  python --version
+This project enforces **Python 3.10.11** inside a virtual environment, without modifying or relying on the system-wide Python version. All setup steps are handled automatically via platform-specific scripts.
 
-## Local Setup
+---
 
-- Enable Python virtual environment and install dependencies:
-```commandline
-> python3 -m venv env
-> source env/bin/activate
-> pip install --upgrade pip
-> pip install -r requirements.txt
+## ✅ Supported Platforms
 
+- macOS (x86_64 or ARM)
+- Windows 10+
+- Linux (not tested, but should work with minor adjustments)
 
+---
+
+## 🚀 Setup Instructions
+
+### 1. Clone or download the project.
+
+```bash
+> git clone <your-repo-url>
+> cd <project-folder>
+````
+
+### 2. Execute the setup script.
+- For **macOS**:
+```bash
+>  setup-macos.sh
+>  source .venv/bin/activate
+```
+- For **Windows**:
+```bash
+>  setup-windows.bat
+```
+- For **Linux**:
+```bash
+>  setup-linux.sh
 ```
 
 ## Run the app:
-```commandline
-> python main.py
+```bash
+
+>(.venv)(base) python main.py
 ```
 
 ## Remarks:

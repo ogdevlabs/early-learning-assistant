@@ -1,1 +1,2 @@
-from .hands import HandDetector
+# (Removed invalid import of hands, as hand detection is in detector.py)
+

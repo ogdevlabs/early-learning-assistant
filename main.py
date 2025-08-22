@@ -1,19 +1,17 @@
 from application.face_detection_app import FaceDetectionApp
 from hand_detection.detector import HandDetectorThread
-import threading
-import time
 
 if __name__ == '__main__':
     print("Starting Face Detection Application...")
+    hand_thread = None
 
     try:
-        app = FaceDetectionApp(enable_audio=False)  # Disable audio temporarily to test
+        app = FaceDetectionApp()  # Remove enable_audio parameter
         print("App created successfully")
 
         hand_thread = HandDetectorThread(
             app.get_latest_frame,
-            app.get_latest_facial_points,
-            audio_feedback=None  # No audio for now
+            app.get_latest_facial_points
         )
         hand_thread.start()
         print("Hand detection thread started")
@@ -29,7 +27,7 @@ if __name__ == '__main__':
         traceback.print_exc()
     finally:
         print("Cleaning up...")
-        if 'hand_thread' in locals():
+        if hand_thread and hand_thread.is_alive():
             hand_thread.stop()
             hand_thread.join()
         print("Application stopped")

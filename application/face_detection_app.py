@@ -120,7 +120,9 @@ class FaceDetectionApp:
             self.monitoring_hands = True
             self.hands_detected = False
             self.face_detected = False
-            self.hand_request_sent = False
+            self.hands_missing = True  # Flag to track if hands are missing
+            self.last_hands_seen_time = None
+            self.last_request_time = None
             self.hand_request_reminder_count = 0
 
             # Initial prompt to put hands in frame
@@ -131,6 +133,7 @@ class FaceDetectionApp:
                     logging.error(f"Audio feedback failed: {e}")
             else:
                 logging.warning("Audio feedback is not available. No speech will be played.")
+            self.last_request_time = time.time()
 
             # Start monitoring thread
             threading.Thread(target=self._monitor_detection_status, daemon=True).start()
@@ -139,9 +142,9 @@ class FaceDetectionApp:
             logging.error(f"Error starting hand detection monitoring: {e}")
 
     def _monitor_detection_status(self):
-        """Monitor face and hand detection status"""
-        last_request_time = time.time()
-        reminder_interval = 5  # Seconds between reminders
+        """Monitor face and hand detection status with improved timer logic"""
+        request_interval = 25  # Seconds between requests when hands are missing
+        missing_threshold = 30  # Seconds to wait before re-requesting if hands disappear
         confirmation_given = False
 
         while self.monitoring_hands:
@@ -149,10 +152,13 @@ class FaceDetectionApp:
                 current_time = time.time()
                 current_hands = self._check_current_hands()
 
-                if current_hands and not self.hands_detected:
-                    self.hands_detected = True
-                    logging.info("Hand landmarks identified!")
-                    if not confirmation_given:
+                if current_hands:
+                    if self.hands_missing:
+                        self.hands_detected = True
+                        self.hands_missing = False
+                        self.last_hands_seen_time = current_time
+                        confirmation_given = False
+                        logging.info("Hand landmarks identified!")
                         if self.audio_feedback:
                             try:
                                 self.audio_feedback.speak("Excellent! Hands detected successfully.")
@@ -160,21 +166,29 @@ class FaceDetectionApp:
                                 logging.error(f"Audio feedback failed: {e}")
                         else:
                             logging.warning("Audio feedback is not available. No speech will be played.")
-                        confirmation_given = True
-                    threading.Timer(2.0, self._start_capture_repeat_mode).start()
-                    self.monitoring_hands = False
-
-                elif not current_hands and not self.hands_detected:
-                    if (current_time - last_request_time) > reminder_interval:
-                        self.hand_request_reminder_count += 1
-                        last_request_time = current_time
-                        if self.audio_feedback:
-                            try:
-                                self.audio_feedback.speak("Please put your hands in the camera view")
-                            except Exception as e:
-                                logging.error(f"Audio feedback failed: {e}")
-                        else:
-                            logging.warning("Audio feedback is not available. No speech will be played.")
+                        # Start next mode after confirmation
+                        threading.Timer(2.0, self._start_capture_repeat_mode).start()
+                    else:
+                        self.last_hands_seen_time = current_time
+                else:
+                    if not self.hands_missing:
+                        # Hands were previously detected, now missing
+                        if self.last_hands_seen_time and (current_time - self.last_hands_seen_time) > missing_threshold:
+                            self.hands_missing = True
+                            self.hands_detected = False
+                            self.last_request_time = None
+                            logging.info("Hands missing for over 30 seconds, will start request loop again.")
+                    if self.hands_missing:
+                        if not self.last_request_time or (current_time - self.last_request_time) > request_interval:
+                            self.hand_request_reminder_count += 1
+                            self.last_request_time = current_time
+                            if self.audio_feedback:
+                                try:
+                                    self.audio_feedback.speak("Please put your hands in the camera view")
+                                except Exception as e:
+                                    logging.error(f"Audio feedback failed: {e}")
+                            else:
+                                logging.warning("Audio feedback is not available. No speech will be played.")
                 time.sleep(0.1)
             except Exception as e:
                 logging.error(f"Error in hand detection monitoring thread: {e}")

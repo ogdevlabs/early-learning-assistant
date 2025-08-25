@@ -1,3 +1,14 @@
+"""
+VoiceRecognitionThread diagnostic runner.
+Recommended usage:
+    python -m audio.voice_recognition
+Or (for direct execution):
+    python audio/voice_recognition.py
+"""
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import threading
 import logging
 import speech_recognition as sr
@@ -6,6 +17,8 @@ import time
 import queue
 from typing import Optional, Callable, Dict, List
 from audio.audio_manager import AudioManager
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s:%(message)s')
 
 class VoiceRecognitionThread(threading.Thread):
     """
@@ -114,29 +127,28 @@ class VoiceRecognitionThread(threading.Thread):
         logging.info("VoiceRecognitionThread initialized")
 
     def run(self):
-        """Main voice recognition loop with improved error handling."""
+        """Main voice recognition loop with improved error handling and diagnostics."""
         logging.info("Voice recognition thread started")
         self.running = True
-
+        # Log input device info
+        if hasattr(self.audio_manager, 'input_device'):
+            dev = sr.Microphone(device_index=self.audio_manager.input_device)
+            logging.info(f"Using input device: [{self.audio_manager.input_device}] {dev.device_index}")
+        else:
+            logging.info("Using default input device.")
         try:
             while self.running:
                 try:
-                    # Get audio data from audio manager
                     audio_data = self.audio_manager.get_audio_data()
-
                     if audio_data is not None:
                         self._process_audio_chunk(audio_data)
                     else:
                         time.sleep(0.01)
-
-                    # Check for speech timeout
                     if time.time() - self.last_speech_time > self.speech_timeout:
                         self._handle_speech_timeout()
-
                 except Exception as e:
                     logging.error(f"Voice recognition loop error: {e}")
                     time.sleep(0.1)
-
         except KeyboardInterrupt:
             logging.info("Voice recognition interrupted by user")
         except Exception as e:
@@ -154,6 +166,7 @@ class VoiceRecognitionThread(threading.Thread):
         """
         # Calculate audio level
         audio_level = np.abs(audio_data).mean()
+        print(f"[VoiceRecognition] Audio level: {audio_level:.4f}, Buffer duration: {self.buffer_duration:.2f}s")
 
         # Voice activity detection
         if audio_level > self.silence_threshold:
@@ -161,42 +174,54 @@ class VoiceRecognitionThread(threading.Thread):
             self.audio_buffer.append(audio_data)
             self.buffer_duration += len(audio_data) / self.audio_manager.sample_rate
             self.last_speech_time = time.time()
+            print(f"[VoiceRecognition] Buffer filled: {self.buffer_duration:.2f}s")
 
             # Check if we have enough audio or max length reached
             if self.buffer_duration >= self.max_audio_length:
+                print(f"[VoiceRecognition] Buffer reached max length, processing speech buffer...")
                 self._process_speech_buffer()
         else:
             # Silence detected, process buffer if we have enough audio
             if self.buffer_duration >= self.min_audio_length:
+                print(f"[VoiceRecognition] Silence detected, processing speech buffer...")
                 self._process_speech_buffer()
             else:
-                # Clear short buffer
+                print(f"[VoiceRecognition] Silence detected, clearing short buffer.")
                 self._clear_buffer()
 
     def _process_speech_buffer(self):
-        """Process accumulated audio buffer for speech recognition."""
+        """Process accumulated audio buffer for speech recognition with diagnostics."""
         if not self.audio_buffer:
+            print("[VoiceRecognition] No audio in buffer to process.")
             return
-
         try:
-            # Combine audio chunks
-            combined_audio = np.concatenate(self.audio_buffer)
-
-            # Convert to speech_recognition format
-            audio_data = sr.AudioData(
-                frame_data=(combined_audio * 32767).astype(np.int16).tobytes(),
-                sample_rate=self.audio_manager.sample_rate,
-                sample_width=2
-            )
-
-            # Perform speech recognition
-            self._recognize_speech(audio_data)
-
-        except Exception as e:
-            logging.error(f"Speech processing error: {e}")
-            self.failed_recognitions += 1
-        finally:
+            # Convert buffer to audio for recognition
+            audio = np.concatenate(self.audio_buffer)
+            print(f"[VoiceRecognition] Processing buffer of length: {len(audio)/self.audio_manager.sample_rate:.2f}s")
             self._clear_buffer()
+            # Use speech_recognition to recognize
+            with sr.AudioData(audio.tobytes(), self.audio_manager.sample_rate, audio.dtype.itemsize) as audio_data:
+                try:
+                    print("[VoiceRecognition] Attempting recognition...")
+                    result = self.recognizer.recognize_google(audio_data, language=self.recognition_language)
+                    logging.info(f"Recognized text: '{result}'")
+                    # Map to command
+                    command = self.command_aliases.get(result.lower(), result.lower())
+                    if command in self.voice_commands:
+                        logging.info(f"Mapped to command: '{command}'")
+                        if self.command_callback:
+                            self.command_callback(command)
+                            logging.info(f"Callback invoked for command: '{command}'")
+                        else:
+                            logging.warning("No command callback set.")
+                    else:
+                        logging.info(f"Unrecognized command: '{result}'")
+                except Exception as e:
+                    print(f"[VoiceRecognition] Speech recognition error: {e}")
+                    logging.error(f"Speech recognition error: {e}")
+        except Exception as e:
+            print(f"[VoiceRecognition] Error processing speech buffer: {e}")
+            logging.error(f"Error processing speech buffer: {e}")
 
     def _recognize_speech(self, audio_data: sr.AudioData):
         """
@@ -471,3 +496,54 @@ class VoiceRecognitionThread(threading.Thread):
     def is_running(self) -> bool:
         """Check if voice recognition is running."""
         return self.running
+
+# Test mode for diagnostics
+if __name__ == "__main__":
+    print("[VoiceRecognition] Starting diagnostic test...")
+    from audio.audio_manager import AudioManager
+    am = AudioManager()
+    print("[VoiceRecognition] Enabling microphone...")
+    mic_enabled = am.enable_microphone()
+    print(f"[VoiceRecognition] Microphone enabled: {mic_enabled}")
+    print("[VoiceRecognition] Starting audio recording...")
+    recording_started = am.start_recording()
+    print(f"[VoiceRecognition] Audio recording started: {recording_started}")
+    def print_command(cmd):
+        print(f"[VoiceRecognition] Recognized command: {cmd}")
+    class DiagnosticVoiceRecognitionThread(VoiceRecognitionThread):
+        def run(self):
+            logging.info("Voice recognition thread started")
+            self.running = True
+            if hasattr(self.audio_manager, 'input_device'):
+                dev = sr.Microphone(device_index=self.audio_manager.input_device)
+                logging.info(f"Using input device: [{self.audio_manager.input_device}] {dev.device_index}")
+            else:
+                logging.info("Using default input device.")
+            try:
+                while self.running:
+                    try:
+                        audio_data = self.audio_manager.get_audio_data()
+                        if audio_data is not None:
+                            print("[VoiceRecognition] Received audio data from AudioManager.")
+                            self._process_audio_chunk(audio_data)
+                        else:
+                            print("[VoiceRecognition] No audio data available.")
+                            time.sleep(0.01)
+                        if time.time() - self.last_speech_time > self.speech_timeout:
+                            self._handle_speech_timeout()
+                    except Exception as e:
+                        logging.error(f"Voice recognition loop error: {e}")
+                        time.sleep(0.1)
+            except KeyboardInterrupt:
+                logging.info("Voice recognition interrupted by user")
+            except Exception as e:
+                logging.error(f"Voice recognition fatal error: {e}")
+            finally:
+                self.running = False
+                logging.info("Voice recognition thread stopped")
+    vr = DiagnosticVoiceRecognitionThread(am, command_callback=print_command)
+    print("[VoiceRecognition] Starting voice recognition thread...")
+    vr.start()
+    while vr.is_alive():
+        time.sleep(1)
+    print("[VoiceRecognition] Diagnostic test ended.")

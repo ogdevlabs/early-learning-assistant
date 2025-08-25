@@ -4,6 +4,8 @@ import sounddevice as sd
 import numpy as np
 import queue
 import time
+import json
+import os
 from typing import Optional, Callable
 
 class AudioManager:
@@ -55,18 +57,63 @@ class AudioManager:
         logging.info(f"AudioManager initialized: {sample_rate}Hz, {channels}ch, {chunk_size} buffer")
 
     def list_devices(self):
-        """List all available audio devices."""
+        """List all available audio devices with index, name, and input/output type."""
         try:
             devices = sd.query_devices()
+            print("Available audio devices:")
+            for idx, dev in enumerate(devices):
+                dev_type = []
+                if dev['max_input_channels'] > 0:
+                    dev_type.append('Input')
+                if dev['max_output_channels'] > 0:
+                    dev_type.append('Output')
+                print(f"[{idx}] {dev['name']} - {', '.join(dev_type)}")
             logging.info(f"Found {len(devices)} audio devices")
-            return devices
         except Exception as e:
-            logging.error(f"Failed to list audio devices: {e}")
-            return []
+            logging.error(f"Error listing audio devices: {e}")
+
+    def select_input_device(self, device_index: int):
+        """Select the input device by index."""
+        try:
+            devices = sd.query_devices()
+            if 0 <= device_index < len(devices):
+                if devices[device_index]['max_input_channels'] > 0:
+                    self.input_device = device_index
+                    logging.info(f"Selected input device: [{device_index}] {devices[device_index]['name']}")
+                else:
+                    logging.warning(f"Device [{device_index}] is not an input device.")
+            else:
+                logging.warning(f"Device index {device_index} out of range.")
+        except Exception as e:
+            logging.error(f"Error selecting input device: {e}")
+
+    def get_current_input_device(self):
+        """Return the currently selected input device info."""
+        try:
+            if hasattr(self, 'input_device'):
+                dev = sd.query_devices()[self.input_device]
+                return {'index': self.input_device, 'name': dev['name'], 'max_input_channels': dev['max_input_channels']}
+            else:
+                return None
+        except Exception as e:
+            logging.error(f"Error getting current input device: {e}")
+            return None
+
+    def _get_admin_config(self):
+        """Read device selection from audio_device_config.json if available."""
+        config_path = os.path.join(os.path.dirname(__file__), 'audio_device_config.json')
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                return config
+            except Exception as e:
+                logging.error(f"Error reading admin config: {e}")
+        return None
 
     def enable_microphone(self, device_id=None):
         """
-        Enable microphone with optional device selection.
+        Enable microphone with optional device selection. Uses admin config if available.
 
         Args:
             device_id (int, optional): Specific device ID to use
@@ -75,16 +122,21 @@ class AudioManager:
             bool: True if successful
         """
         try:
+            admin_config = self._get_admin_config()
+            if admin_config and 'input_device' in admin_config:
+                device_id = admin_config['input_device']
+                logging.info(f"Using admin-selected input device: {device_id}")
+
             # Verify device availability
             if device_id is not None:
                 device_info = sd.query_devices(device_id, 'input')
-                logging.info(f"Selected input device: {device_info['name']}")
+                logging.info(f"Selected input device: {device_info['name']} (index {device_id}), max_input_channels={device_info['max_input_channels']}, default_samplerate={device_info['default_samplerate']}")
             else:
                 device_info = sd.query_devices(kind='input')
-                logging.info(f"Using default input device: {device_info['name']}")
+                logging.info(f"Using default input device: {device_info['name']}, max_input_channels={device_info['max_input_channels']}, default_samplerate={device_info['default_samplerate']}")
 
             self.microphone_enabled = True
-            logging.info("Microphone enabled successfully")
+            logging.info(f"Microphone enabled with sample_rate={self.sample_rate}, channels={self.channels}")
             return True
 
         except Exception as e:
@@ -93,7 +145,7 @@ class AudioManager:
 
     def enable_speakers(self, device_id=None):
         """
-        Enable speakers with optional device selection.
+        Enable speakers with optional device selection. Uses admin config if available.
 
         Args:
             device_id (int, optional): Specific device ID to use
@@ -102,6 +154,11 @@ class AudioManager:
             bool: True if successful
         """
         try:
+            admin_config = self._get_admin_config()
+            if admin_config and 'output_device' in admin_config:
+                device_id = admin_config['output_device']
+                logging.info(f"Using admin-selected output device: {device_id}")
+
             # Verify device availability
             if device_id is not None:
                 device_info = sd.query_devices(device_id, 'output')
@@ -168,13 +225,14 @@ class AudioManager:
         logging.info("Audio recording stopped")
 
     def _input_capture_loop(self):
-        """Main audio input capture loop."""
+        """Main audio input capture loop with diagnostics."""
         def input_callback(indata, frames, time, status):
             if status:
                 logging.warning(f"Input callback status: {status}")
 
             # Calculate input level
             self.current_input_level = float(np.abs(indata).mean())
+            print(f"[AudioManager] Input callback audio level: {self.current_input_level:.4f}")
 
             # Put audio data in queue
             audio_data = indata.copy()
@@ -189,6 +247,7 @@ class AudioManager:
                 logging.warning("Input queue full, dropping frames")
 
         try:
+            print(f"[AudioManager] Starting InputStream with sample_rate={self.sample_rate}, channels={self.channels}, chunk_size={self.chunk_size}")
             with sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=self.channels,
@@ -203,6 +262,7 @@ class AudioManager:
                     time.sleep(0.1)
 
         except Exception as e:
+            print(f"[AudioManager] Error starting InputStream: {e}")
             logging.error(f"Input capture error: {e}")
         finally:
             self.recording = False

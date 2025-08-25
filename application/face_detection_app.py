@@ -124,7 +124,13 @@ class FaceDetectionApp:
             self.hand_request_reminder_count = 0
 
             # Initial prompt to put hands in frame
-            self.audio_feedback.speak("Please put your hands in the camera view")
+            if self.audio_feedback:
+                try:
+                    self.audio_feedback.speak("Please put your hands in the camera view")
+                except Exception as e:
+                    logging.error(f"Audio feedback failed: {e}")
+            else:
+                logging.warning("Audio feedback is not available. No speech will be played.")
 
             # Start monitoring thread
             threading.Thread(target=self._monitor_detection_status, daemon=True).start()
@@ -136,45 +142,42 @@ class FaceDetectionApp:
         """Monitor face and hand detection status"""
         last_request_time = time.time()
         reminder_interval = 5  # Seconds between reminders
+        confirmation_given = False
 
         while self.monitoring_hands:
             try:
                 current_time = time.time()
-
-                # Check for hand landmarks in the latest frame
                 current_hands = self._check_current_hands()
 
                 if current_hands and not self.hands_detected:
-                    # Hands are detected for the first time
                     self.hands_detected = True
                     logging.info("Hand landmarks identified!")
-                    self.audio_feedback.speak("Excellent! Hands detected successfully.")
-
-                    # If we want to continue to another mode after hands are detected
+                    if not confirmation_given:
+                        if self.audio_feedback:
+                            try:
+                                self.audio_feedback.speak("Excellent! Hands detected successfully.")
+                            except Exception as e:
+                                logging.error(f"Audio feedback failed: {e}")
+                        else:
+                            logging.warning("Audio feedback is not available. No speech will be played.")
+                        confirmation_given = True
                     threading.Timer(2.0, self._start_capture_repeat_mode).start()
-                    self.monitoring_hands = False  # Stop monitoring
+                    self.monitoring_hands = False
 
-                elif not current_hands and not self.hands_detected and (current_time - last_request_time) > reminder_interval:
-                    # No hands detected yet, provide reminder
-                    self.hand_request_reminder_count += 1
-                    last_request_time = current_time
-
-                    # Vary the message based on how many reminders we've given
-                    if self.hand_request_reminder_count == 1:
-                        self.audio_feedback.speak("I don't see your hands yet. Please place both hands in the camera view.")
-                    elif self.hand_request_reminder_count == 2:
-                        self.audio_feedback.speak("Please position your hands so they are clearly visible to the camera.")
-                    elif self.hand_request_reminder_count == 3:
-                        self.audio_feedback.speak("Make sure your hands are in the frame and well lit so I can detect them.")
-                    else:
-                        self.audio_feedback.speak("Still waiting for hands to be detected. Please put your hands in the frame.")
-
-                    logging.info(f"Requesting user to show hands (reminder {self.hand_request_reminder_count})")
-
-                time.sleep(0.5)  # Check every 500ms
-
+                elif not current_hands and not self.hands_detected:
+                    if (current_time - last_request_time) > reminder_interval:
+                        self.hand_request_reminder_count += 1
+                        last_request_time = current_time
+                        if self.audio_feedback:
+                            try:
+                                self.audio_feedback.speak("Please put your hands in the camera view")
+                            except Exception as e:
+                                logging.error(f"Audio feedback failed: {e}")
+                        else:
+                            logging.warning("Audio feedback is not available. No speech will be played.")
+                time.sleep(0.1)
             except Exception as e:
-                logging.error(f"Error in detection monitoring: {e}")
+                logging.error(f"Error in hand detection monitoring thread: {e}")
                 time.sleep(1)
 
     def _check_current_hands(self):

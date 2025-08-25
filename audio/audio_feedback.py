@@ -1,8 +1,8 @@
 import threading
 import logging
-import pyttsx3
 import queue
 import time
+import subprocess
 from typing import Optional, Dict, List, Tuple
 
 class AudioFeedback:
@@ -23,9 +23,6 @@ class AudioFeedback:
         self.voice_rate = voice_rate
         self.voice_volume = voice_volume
         self.voice_id = voice_id
-
-        # Text-to-speech engine
-        self.tts_engine: Optional[pyttsx3.Engine] = None
         self.tts_queue = queue.Queue(maxsize=10)  # Limit queue size
         self.tts_thread: Optional[threading.Thread] = None
         self.running = False
@@ -33,9 +30,6 @@ class AudioFeedback:
         # Speech control
         self.speaking = False
         self.muted = False
-
-        # Initialize TTS engine
-        self._initialize_tts()
 
         # Enhanced predefined responses for facial detection and hand tracking
         self.responses = {
@@ -73,41 +67,6 @@ class AudioFeedback:
 
         logging.info("AudioFeedback initialized")
 
-    def _initialize_tts(self) -> bool:
-        """
-        Initialize text-to-speech engine with error handling.
-
-        Returns:
-            bool: True if successful
-        """
-        try:
-            self.tts_engine = pyttsx3.init()
-
-            # Set voice properties
-            self.tts_engine.setProperty('rate', self.voice_rate)
-            self.tts_engine.setProperty('volume', self.voice_volume)
-
-            # Set specific voice if requested
-            if self.voice_id is not None:
-                voices = self.tts_engine.getProperty('voices')
-                if voices and self.voice_id < len(voices):
-                    self.tts_engine.setProperty('voice', voices[self.voice_id].id)
-                    logging.info(f"Using voice: {voices[self.voice_id].name}")
-                else:
-                    logging.warning(f"Voice ID {self.voice_id} not available, using default")
-
-            # Test the engine
-            self.tts_engine.say("")
-            self.tts_engine.runAndWait()
-
-            logging.info("TTS engine initialized successfully")
-            return True
-
-        except Exception as e:
-            logging.error(f"Failed to initialize TTS engine: {e}")
-            self.tts_engine = None
-            return False
-
     def start(self) -> bool:
         """
         Start audio feedback thread.
@@ -118,10 +77,6 @@ class AudioFeedback:
         if self.running:
             logging.warning("Audio feedback already running")
             return True
-
-        if not self.tts_engine:
-            logging.error("TTS engine not initialized")
-            return False
 
         try:
             self.running = True
@@ -152,30 +107,23 @@ class AudioFeedback:
         logging.info("Audio feedback thread stopped")
 
     def _tts_worker(self):
-        """TTS worker thread with improved error handling."""
+        """Background thread for processing TTS queue and producing speech using macOS 'say' command."""
         while self.running:
             try:
-                # Get text from queue with timeout
                 text = self.tts_queue.get(timeout=0.1)
-
-                if text and self.tts_engine and not self.muted:
-                    self.speaking = True
-
-                    # Use event loop for better thread safety
-                    self.tts_engine.say(text)
-                    self.tts_engine.runAndWait()
-
-                    self.speaking = False
-
+                if text:
+                    logging.info(f"Speaking: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+                    try:
+                        subprocess.run(["say", text], check=True)
+                    except Exception as e:
+                        logging.error(f"Failed to speak using 'say': {e}")
                 self.tts_queue.task_done()
-
             except queue.Empty:
                 continue
             except Exception as e:
                 logging.error(f"TTS worker error: {e}")
                 self.speaking = False
                 time.sleep(0.1)
-
         logging.info("TTS worker thread ended")
 
     def speak(self, text: str, priority: bool = False) -> bool:
@@ -287,15 +235,8 @@ class AudioFeedback:
         Returns:
             List[Tuple[int, str, str]]: List of (index, name, id) tuples
         """
-        if not self.tts_engine:
-            return []
-
-        try:
-            voices = self.tts_engine.getProperty('voices')
-            return [(i, voice.name, voice.id) for i, voice in enumerate(voices) if voice]
-        except Exception as e:
-            logging.error(f"Error getting voices: {e}")
-            return []
+        # Not applicable with macOS 'say' command, but keeping for interface consistency
+        return [(0, "Default", "")]
 
     def set_voice_properties(self, rate: Optional[int] = None, volume: Optional[float] = None):
         """
@@ -305,22 +246,14 @@ class AudioFeedback:
             rate (int, optional): New speech rate
             volume (float, optional): New volume level
         """
-        if not self.tts_engine:
-            return
+        # Not applicable with macOS 'say' command, but keeping for interface consistency
+        if rate is not None:
+            self.voice_rate = rate
+        if volume is not None:
+            self.voice_volume = max(0.0, min(1.0, volume))
 
-        try:
-            if rate is not None:
-                self.voice_rate = rate
-                self.tts_engine.setProperty('rate', rate)
+        logging.info(f"Voice properties updated: rate={self.voice_rate}, volume={self.voice_volume}")
 
-            if volume is not None:
-                self.voice_volume = max(0.0, min(1.0, volume))
-                self.tts_engine.setProperty('volume', self.voice_volume)
-
-            logging.info(f"Voice properties updated: rate={self.voice_rate}, volume={self.voice_volume}")
-
-        except Exception as e:
-            logging.error(f"Error setting voice properties: {e}")
 
     def add_custom_response(self, key: str, text: str):
         """

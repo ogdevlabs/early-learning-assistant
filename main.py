@@ -4,10 +4,18 @@ from hand_detection.detector import HandDetectorThread
 if __name__ == '__main__':
     print("Starting Face Detection Application...")
     hand_thread = None
+    app = None
 
     try:
-        app = FaceDetectionApp()  # Remove enable_audio parameter
-        print("App created successfully")
+        # Try with audio first, fallback to no audio if it fails
+        try:
+            app = FaceDetectionApp(enable_audio=True)
+            print("App created with audio successfully")
+        except Exception as audio_error:
+            print(f"Audio initialization failed: {audio_error}")
+            print("Continuing without audio...")
+            app = FaceDetectionApp(enable_audio=False)
+            print("App created without audio successfully")
 
         hand_thread = HandDetectorThread(
             app.get_latest_frame,
@@ -30,4 +38,6 @@ if __name__ == '__main__':
         if hand_thread and hand_thread.is_alive():
             hand_thread.stop()
             hand_thread.join()
+        if app:
+            app.shutdown_audio()
         print("Application stopped")

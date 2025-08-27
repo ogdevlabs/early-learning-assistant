@@ -8,3 +8,4 @@ SpeechRecognition>=3.14.3
 pyaudio>=0.2.13
 sounddevice>=0.4.6
 typing-extensions>=4.14.1
+pytest

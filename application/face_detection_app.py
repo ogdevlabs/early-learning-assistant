@@ -10,9 +10,8 @@ from audio.voice_recognition import VoiceRecognitionThread
 
 class FaceDetectionApp:
     def __init__(self, enable_audio=True):
-        # Configure logging first
         logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s:%(message)s')
-        logging.info("Initializing FaceDetectionApp...")
+        logging.info("Initializing FaceDetectionApp core (video + detectors)...")
 
         self.cap = cv2.VideoCapture(0)
         self.face_detector = FaceDetector()
@@ -21,239 +20,222 @@ class FaceDetectionApp:
         self.latest_frame = None
         self.latest_facial_points = {}
 
-        # Audio components (secondary, independent)
+        # Audio related
         self.enable_audio = enable_audio
         self.audio_manager = None
         self.audio_feedback = None
         self.voice_recognition = None
+        self.audio_initialized = False
 
-        # Initialize audio in background thread so it doesn't block video
-        if self.enable_audio:
-            audio_thread = threading.Thread(target=self._initialize_audio_async, daemon=True)
-            audio_thread.start()
+        # State flags
+        self.monitoring_hands = False
+        self.capture_repeat_active = False
 
-        logging.info("FaceDetectionApp initialization complete")
+        # Hand detection state
+        self.frames_processed = 0
+        self.current_hands_present = False
+        self._hands_consecutive_present = 0
+        self._hands_consecutive_absent = 0
+        # Tuning parameters
+        self.HAND_WARMUP_FRAMES = 15        # frames before starting hand evaluation
+        self.HAND_PRESENT_THRESHOLD = 10    # consecutive frames required to confirm presence
+        self.HAND_ABSENT_THRESHOLD = 30     # consecutive frames to confirm absence after presence
+        self.HAND_PROMPT_INTERVAL = 25      # seconds between repeated prompts
 
-    def _initialize_audio_async(self):
-        """Initialize audio system asynchronously in background thread"""
+        logging.info("FaceDetectionApp core initialized (audio deferred)")
+
+    # --------------------------- Audio Initialization ---------------------------
+    def initialize_audio(self, input_device_id=None, output_device_id=None, test_interaction=True):
+        """Blocking audio & microphone (and speakers) setup.
+        Args:
+            input_device_id (int|None): Specific microphone device index.
+            output_device_id (int|None): Specific speaker device index.
+            test_interaction (bool): If True run a brief IO self-test.
+        """
+        if not self.enable_audio:
+            logging.info("Audio disabled; skipping initialization")
+            return False
+        if self.audio_initialized:
+            logging.info("Audio already initialized")
+            return True
+        logging.info("Starting blocking audio & microphone setup...")
         try:
-            logging.info("Starting audio initialization in background...")
-            self._initialize_audio()
+            self._initialize_audio(input_device_id, output_device_id, test_interaction=test_interaction)
+            self.audio_initialized = True
+            logging.info("Audio & microphone setup complete")
+            return True
         except Exception as e:
-            logging.error(f"Background audio initialization failed: {e}")
+            logging.error(f"Audio initialization failed: {e}")
             self.enable_audio = False
+            self.audio_initialized = False
+            raise
 
-    def _initialize_audio(self):
-        """Initialize audio system in independent thread"""
+    def _initialize_audio(self, input_device_id=None, output_device_id=None, test_interaction=True):
+        logging.info("Initializing audio system...")
+        self.audio_manager = AudioManager()
+        if not self.audio_manager.enable_microphone(device_id=input_device_id):
+            raise Exception("Failed to enable microphone")
+        logging.info("Microphone enabled")
+
+        # Speakers (optional path, mainly for config/logging symmetry)
         try:
-            logging.info("Initializing audio system...")
-
-            # Initialize audio manager
-            self.audio_manager = AudioManager()
-            if not self.audio_manager.enable_microphone():
-                raise Exception("Failed to enable microphone")
-            logging.info("Audio manager initialized")
-
-            # Initialize audio feedback (TTS) with timeout
-            self.audio_feedback = AudioFeedback()
-            if not self.audio_feedback.start():
-                raise Exception("Failed to start audio feedback")
-            logging.info("Audio feedback started")
-
-            # Initialize voice recognition
-            self.voice_recognition = VoiceRecognitionThread(
-                self.audio_manager,
-                command_callback=self._handle_voice_command
-            )
-            logging.info("Voice recognition initialized")
-
-            # Start audio recording with timeout
-            if not self.audio_manager.start_recording():
-                raise Exception("Failed to start recording")
-            logging.info("Audio recording started")
-
-            # Start voice recognition
-            self.voice_recognition.start()
-            logging.info("Voice recognition thread started")
-
-            # Welcome message (non-blocking)
-            try:
-                self.audio_feedback.speak("Face and hand detection system ready")
-            except:
-                pass  # Don't fail if TTS has issues
-
-            logging.info("Audio system fully initialized")
-
-            # Start audio testing sequence after 3 seconds
-            threading.Timer(3.0, self._start_audio_test).start()
-
+            self.audio_manager.enable_speakers(device_id=output_device_id)
         except Exception as e:
-            logging.error(f"Failed to initialize audio: {e}")
-            self.enable_audio = False
-            # Cleanup partial initialization
-            try:
-                if self.audio_feedback:
-                    self.audio_feedback.stop()
-                if self.audio_manager:
-                    self.audio_manager.shutdown()
-            except:
-                pass
+            logging.warning(f"Speakers enable attempt failed (continuing - pyttsx3 handles output): {e}")
 
-    def _start_audio_test(self):
-        """Start the audio testing sequence"""
+        self.audio_feedback = AudioFeedback()
+        if not self.audio_feedback.start():
+            raise Exception("Failed to start audio feedback")
+        logging.info("Audio feedback started")
+
+        self.voice_recognition = VoiceRecognitionThread(
+            self.audio_manager,
+            command_callback=self._handle_voice_command
+        )
+        logging.info("Voice recognition thread created")
+
+        if not self.audio_manager.start_recording():
+            raise Exception("Failed to start recording")
+        logging.info("Audio recording started")
+
+        self.voice_recognition.start()
+        logging.info("Voice recognition thread started")
+
+        # Welcome
         try:
-            logging.info("Starting audio test sequence...")
-
-            # Announce system initialization
-            self.audio_feedback.speak("System initialized")
-
-            # Start hand detection monitoring instead of capture and repeat mode
-            threading.Timer(2.0, self._start_hand_detection_monitoring).start()
-
+            self.audio_feedback.speak("Audio system ready")
         except Exception as e:
-            logging.error(f"Error starting audio test: {e}")
+            logging.warning(f"Welcome TTS failed: {e}")
 
+        if test_interaction:
+            self._basic_audio_self_test()
+
+        threading.Timer(2.0, self._audio_initialized_announcement).start()
+
+    def _audio_initialized_announcement(self):
+        try:
+            if self.audio_feedback:
+                self.audio_feedback.speak("System initialized")
+        except Exception as e:
+            logging.error(f"Audio test announcement failed: {e}")
+
+    def _basic_audio_self_test(self, sample_time=1.0, min_level=0.0005):
+        """Collect short audio sample and log level; warn if very low."""
+        start = time.time()
+        levels = []
+        while time.time() - start < sample_time:
+            data = self.audio_manager.get_audio_data()
+            if data is not None:
+                try:
+                    import numpy as np
+                    levels.append(float(abs(data).mean()))
+                except Exception:
+                    pass
+            time.sleep(0.05)
+        if levels:
+            avg = sum(levels)/len(levels)
+            logging.info(f"Audio input level average: {avg:.6f}")
+            if avg < min_level:
+                logging.warning("Detected very low microphone input level; check mic or choose another device.")
+        else:
+            logging.warning("No audio samples captured during self-test.")
+
+    # --------------------------- Monitoring Threads ---------------------------
     def _start_hand_detection_monitoring(self):
-        """Start monitoring for hand detection after system initialization"""
+        if self.monitoring_hands:
+            return
         try:
-            logging.info("Starting hand detection monitoring...")
+            logging.info("Starting hand detection monitoring thread (debounced)...")
             self.monitoring_hands = True
             self.hands_detected = False
-            self.face_detected = False
-            self.hands_missing = True  # Flag to track if hands are missing
+            self.hands_missing = True
             self.last_hands_seen_time = None
-            self.last_request_time = None
+            self.last_request_time = None  # set after first prompt actually spoken
             self.hand_request_reminder_count = 0
-
-            # Initial prompt to put hands in frame
-            if self.audio_feedback:
-                try:
-                    self.audio_feedback.speak("Please put your hands in the camera view")
-                except Exception as e:
-                    logging.error(f"Audio feedback failed: {e}")
-            else:
-                logging.warning("Audio feedback is not available. No speech will be played.")
-            self.last_request_time = time.time()
-
-            # Start monitoring thread
             threading.Thread(target=self._monitor_detection_status, daemon=True).start()
-
         except Exception as e:
-            logging.error(f"Error starting hand detection monitoring: {e}")
+            logging.error(f"Failed to start monitoring thread: {e}")
 
     def _monitor_detection_status(self):
-        """Monitor face and hand detection status with improved timer logic"""
-        request_interval = 25  # Seconds between requests when hands are missing
-        missing_threshold = 30  # Seconds to wait before re-requesting if hands disappear
-        confirmation_given = False
-
         while self.monitoring_hands:
             try:
-                current_time = time.time()
-                current_hands = self._check_current_hands()
+                # Wait for warmup frames so we don't speak too early
+                if self.frames_processed < self.HAND_WARMUP_FRAMES:
+                    time.sleep(0.2)
+                    continue
 
-                if current_hands:
-                    if self.hands_missing:
-                        self.hands_detected = True
-                        self.hands_missing = False
-                        self.last_hands_seen_time = current_time
-                        confirmation_given = False
-                        logging.info("Hand landmarks identified!")
-                        if self.audio_feedback:
-                            try:
-                                self.audio_feedback.speak("Excellent! Hands detected successfully.")
-                            except Exception as e:
-                                logging.error(f"Audio feedback failed: {e}")
-                        else:
-                            logging.warning("Audio feedback is not available. No speech will be played.")
-                        # Start next mode after confirmation
-                        threading.Timer(2.0, self._start_capture_repeat_mode).start()
-                    else:
-                        self.last_hands_seen_time = current_time
-                else:
-                    if not self.hands_missing:
-                        # Hands were previously detected, now missing
-                        if self.last_hands_seen_time and (current_time - self.last_hands_seen_time) > missing_threshold:
-                            self.hands_missing = True
-                            self.hands_detected = False
-                            self.last_request_time = None
-                            logging.info("Hands missing for over 30 seconds, will start request loop again.")
-                    if self.hands_missing:
-                        if not self.last_request_time or (current_time - self.last_request_time) > request_interval:
-                            self.hand_request_reminder_count += 1
-                            self.last_request_time = current_time
-                            if self.audio_feedback:
-                                try:
-                                    self.audio_feedback.speak("Please put your hands in the camera view")
-                                except Exception as e:
-                                    logging.error(f"Audio feedback failed: {e}")
-                            else:
-                                logging.warning("Audio feedback is not available. No speech will be played.")
-                time.sleep(0.1)
+                # Decide on prompt if still missing and enough time passed
+                now = time.time()
+                if self.hands_missing and self.last_request_time is None:
+                    # First prompt after warmup
+                    self._speak_safe("Please put your hands in the camera view")
+                    self.last_request_time = now
+                elif self.hands_missing and self.last_request_time and (now - self.last_request_time) > self.HAND_PROMPT_INTERVAL:
+                    self.hand_request_reminder_count += 1
+                    self._speak_safe("Please put your hands in the camera view")
+                    self.last_request_time = now
+
+                # Debounced detection logic based on consecutive frame counters (updated in main loop)
+                if not self.hands_detected and self._hands_consecutive_present >= self.HAND_PRESENT_THRESHOLD:
+                    self.hands_detected = True
+                    self.hands_missing = False
+                    self.last_hands_seen_time = now
+                    self._speak_safe("Excellent! Hands detected successfully.")
+                    # Enter capture & repeat mode soon after confirmation
+                    threading.Timer(2.0, self._start_capture_repeat_mode).start()
+
+                if self.hands_detected:
+                    if self._hands_consecutive_absent >= self.HAND_ABSENT_THRESHOLD:
+                        # Hands disappeared
+                        self.hands_detected = False
+                        self.hands_missing = True
+                        self.last_hands_seen_time = None
+                        self.last_request_time = None  # reset so prompt happens again
+                        logging.info("Hands lost (debounced) – returning to prompt cycle")
+
+                time.sleep(0.2)
             except Exception as e:
-                logging.error(f"Error in hand detection monitoring thread: {e}")
-                time.sleep(1)
+                logging.error(f"Error in monitoring loop: {e}")
+                time.sleep(0.5)
+
+    def _speak_safe(self, text):
+        if self.audio_feedback:
+            try:
+                self.audio_feedback.speak(text)
+            except Exception as e:
+                logging.error(f"Audio feedback failed: {e}")
 
     def _check_current_hands(self):
-        """Check if hands are currently detected in the latest frame"""
-        try:
-            if self.latest_frame is None:
-                return False
-
-            # Use MediaPipe to check for hands in current frame
-            import mediapipe as mp
-            mp_hands = mp.solutions.hands
-
-            with mp_hands.Hands(
-                static_image_mode=False,
-                max_num_hands=2,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
-            ) as hands:
-                image_rgb = cv2.cvtColor(self.latest_frame, cv2.COLOR_BGR2RGB)
-                results = hands.process(image_rgb)
-
-                if results.multi_hand_landmarks:
-                    logging.info(f"Found {len(results.multi_hand_landmarks)} hand(s) with landmarks")
-                    return True
-
+        """Legacy method retained (now just returns debounced state)."""
+        if self.frames_processed < self.HAND_WARMUP_FRAMES:
             return False
+        return self.current_hands_present
 
-        except Exception as e:
-            logging.error(f"Error checking hands: {e}")
-            return False
-
+    # --------------------------- Modes & Commands ---------------------------
     def _start_capture_repeat_mode(self):
-        """Start capture and repeat mode"""
+        if self.capture_repeat_active:
+            return
         try:
-            logging.info("Starting capture and repeat mode...")
+            logging.info("Entering capture & repeat mode")
             self.capture_repeat_active = True
-
-            # Announce mode
-            self.audio_feedback.speak("Capture and repeat mode activated. Say something and I will repeat it. Say stop or quit to exit.")
-
+            if self.audio_feedback:
+                self.audio_feedback.speak("Capture and repeat mode activated. Say something and I will repeat it. Say stop or quit to exit.")
         except Exception as e:
-            logging.error(f"Error starting capture repeat mode: {e}")
+            logging.error(f"Failed to start capture repeat mode: {e}")
 
     def _handle_voice_command(self, command):
-        """Handle voice commands for face and hand detection"""
-        logging.info(f"Voice command received: {command}")
-
-        # Check if we're in capture and repeat mode
-        if hasattr(self, 'capture_repeat_active') and self.capture_repeat_active:
-            # Check for exit commands
-            if "stop" in command.lower() or "quit" in command.lower():
+        logging.info(f"Voice command: {command}")
+        if self.capture_repeat_active:
+            if any(x in command.lower() for x in ["stop", "quit"]):
                 self.capture_repeat_active = False
-                self.audio_feedback.speak("Capture and repeat mode deactivated. Returning to normal mode.")
-                logging.info("Exiting capture and repeat mode")
+                if self.audio_feedback:
+                    self.audio_feedback.speak("Capture and repeat mode deactivated. Returning to normal mode.")
                 return
-
-            # Repeat what was said
-            logging.info(f"Repeating captured audio: {command}")
-            self.audio_feedback.speak(f"You said: {command}")
+            if self.audio_feedback:
+                self.audio_feedback.speak(f"You said: {command}")
             return
-
-        # Normal command handling
+        if not self.audio_feedback:
+            return
         if command == "hello":
             self.audio_feedback.speak_response("hello")
         elif command == "help":
@@ -273,22 +255,21 @@ class FaceDetectionApp:
         elif "point" in command and "ears" in command:
             self.audio_feedback.speak("Point your index finger at your ears")
         else:
-            logging.info(f"Unhandled voice command: {command}")
+            logging.info(f"Unhandled command: {command}")
 
+    # --------------------------- Frame Accessors ---------------------------
     def get_latest_frame(self):
         return self.latest_frame
 
     def get_latest_facial_points(self):
         return self.latest_facial_points
 
+    # --------------------------- Main Loop ---------------------------
     def run(self):
         if not self.cap.isOpened():
-            logging.error('Could not open webcam.')
+            logging.error("Could not open webcam.")
             return
-
-        # Start the hand detection monitoring immediately when the application runs
-        threading.Thread(target=self._start_hand_detection_monitoring, daemon=True).start()
-
+        self._start_hand_detection_monitoring()
         try:
             with self.mp_face_mesh.FaceMesh(
                 static_image_mode=False,
@@ -305,61 +286,74 @@ class FaceDetectionApp:
                 while self.cap.isOpened():
                     ret, frame = self.cap.read()
                     if not ret:
-                        logging.warning('Failed to read frame from webcam.')
+                        logging.warning("Failed to read frame from webcam.")
                         break
                     self.latest_frame = frame
                     image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    results = face_mesh.process(image_rgb)
-                    if results.multi_face_landmarks:
-                        for face_landmarks in results.multi_face_landmarks:
+
+                    face_results = face_mesh.process(image_rgb)
+                    if face_results.multi_face_landmarks:
+                        for face_landmarks in face_results.multi_face_landmarks:
                             features = self.face_detector.detect(
                                 face_landmarks,
                                 image_width=frame.shape[1],
                                 image_height=frame.shape[0]
                             )
                             self.latest_facial_points = self._extract_facial_points(features)
-
-                            # Draw facial feature markers
-                            for part, points in features.items():
-                                if points is None:
+                            for part, pts in features.items():
+                                if pts is None:
                                     continue
-
-                                # Handle nose as a tuple (x, y)
-                                if part == 'nose' and isinstance(points, tuple) and len(points) == 2:
-                                    cv2.circle(frame, (int(points[0]), int(points[1])), 4, (0, 0, 255), -1)  # Red dot for nose
+                                if part == 'nose' and isinstance(pts, tuple) and len(pts) == 2:
+                                    cv2.circle(frame, (int(pts[0]), int(pts[1])), 4, (0,0,255), -1)
                                     continue
-
-                                if isinstance(points, dict):
-                                    for k, v in points.items():
-                                        if v is None:
-                                            continue
-                                        if isinstance(v, (list, tuple)) and len(v) == 2 and all(isinstance(x, (int, float)) for x in v):
-                                            color = (0, 0, 255) if part == 'nose' else (255, 255, 255)  # Red for nose, white for others
-                                            cv2.circle(frame, (int(v[0]), int(v[1])), 2, color, -1)
+                                if isinstance(pts, dict):
+                                    for v in pts.values():
+                                        if isinstance(v, (list, tuple)) and len(v) == 2:
+                                            cv2.circle(frame, (int(v[0]), int(v[1])), 2, (255,255,255), -1)
                                         elif isinstance(v, list):
                                             for pt in v:
                                                 if isinstance(pt, (list, tuple)) and len(pt) == 2:
-                                                    color = (0, 0, 255) if part == 'nose' else (255, 255, 255)
-                                                    cv2.circle(frame, (int(pt[0]), int(pt[1])), 2, color, -1)
-                                elif isinstance(points, list):
-                                    for v in points:
+                                                    cv2.circle(frame, (int(pt[0]), int(pt[1])), 2, (255,255,255), -1)
+                                elif isinstance(pts, list):
+                                    for v in pts:
                                         if isinstance(v, (list, tuple)) and len(v) == 2:
-                                            color = (0, 0, 255) if part == 'nose' else (255, 255, 255)
-                                            cv2.circle(frame, (int(v[0]), int(v[1])), 2, color, -1)
+                                            cv2.circle(frame, (int(v[0]), int(v[1])), 2, (255,255,255), -1)
 
-                    # Process hand detection and draw markers on the same frame
-                    self._draw_hand_markers(frame, hands, image_rgb)
+                    # Single hand processing per frame (no duplicate processing in monitoring thread)
+                    hand_results = hands.process(image_rgb)
+                    present_now = bool(hand_results.multi_hand_landmarks)
+                    # Update consecutive counters
+                    if present_now:
+                        self._hands_consecutive_present += 1
+                        self._hands_consecutive_absent = 0
+                    else:
+                        self._hands_consecutive_absent += 1
+                        self._hands_consecutive_present = 0
+                    self.current_hands_present = present_now
+
+                    # Draw hand markers
+                    if hand_results.multi_hand_landmarks:
+                        for hand_landmarks in hand_results.multi_hand_landmarks:
+                            h, w, _ = frame.shape
+                            for i, landmark in enumerate(hand_landmarks.landmark):
+                                x = int(landmark.x * w)
+                                y = int(landmark.y * h)
+                                if i == 8:
+                                    cv2.circle(frame, (x, y), 6, (255,0,0), -1)
+                                else:
+                                    cv2.circle(frame, (x, y), 2, (255,255,255), -1)
+
+                    self.frames_processed += 1
 
                     cv2.imshow('Face Detection', frame)
                     key = cv2.waitKey(1) & 0xFF
-                    if key == 27 or key == ord('q') or key == ord('Q'):  # ESC, q, or Q key
+                    if key in (27, ord('q'), ord('Q')):
                         break
         finally:
             self.cap.release()
             cv2.destroyAllWindows()
 
     def _extract_facial_points(self, features):
-        # Extracts key facial points from features dict for hand proximity logic
         points = {}
         for part, value in features.items():
             if isinstance(value, dict):
@@ -371,40 +365,37 @@ class FaceDetectionApp:
         return points
 
     def _draw_hand_markers(self, frame, hands, image_rgb):
-        """Draw hand landmarks with white dots and blue index finger markers"""
         results = hands.process(image_rgb)
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
                 h, w, _ = frame.shape
-                # Draw all hand landmarks
                 for i, landmark in enumerate(hand_landmarks.landmark):
                     x = int(landmark.x * w)
                     y = int(landmark.y * h)
-
-                    if i == 8:  # Index finger tip
-                        cv2.circle(frame, (x, y), 6, (255, 0, 0), -1)  # Blue for index finger
+                    if i == 8:
+                        cv2.circle(frame, (x, y), 6, (255,0,0), -1)
                     else:
-                        cv2.circle(frame, (x, y), 2, (255, 255, 255), -1)  # White for other landmarks
+                        cv2.circle(frame, (x, y), 2, (255,255,255), -1)
 
+    # --------------------------- Shutdown ---------------------------
     def shutdown_audio(self):
-        """Cleanup audio resources"""
-        if self.enable_audio:
-            try:
-                if self.voice_recognition:
-                    self.voice_recognition.stop()
-                    self.voice_recognition.join(timeout=2.0)
-
-                if self.audio_manager:
-                    self.audio_manager.stop_recording()
-                    self.audio_manager.shutdown()
-
-                if self.audio_feedback:
-                    self.audio_feedback.stop()
-
-                logging.info("Audio system shutdown complete")
-            except Exception as e:
-                logging.error(f"Error during audio shutdown: {e}")
+        if not self.enable_audio:
+            return
+        try:
+            if self.voice_recognition:
+                self.voice_recognition.stop()
+                self.voice_recognition.join(timeout=2.0)
+            if self.audio_manager:
+                self.audio_manager.stop_recording()
+                self.audio_manager.shutdown()
+            if self.audio_feedback:
+                self.audio_feedback.stop()
+            logging.info("Audio system shutdown complete")
+        except Exception as e:
+            logging.error(f"Audio shutdown error: {e}")
 
     def __del__(self):
-        """Destructor to ensure audio cleanup"""
-        self.shutdown_audio()
+        try:
+            self.shutdown_audio()
+        except:
+            pass
